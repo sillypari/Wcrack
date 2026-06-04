@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { Cpu, RefreshCw, AlertTriangle, Monitor, Globe, ShieldAlert, ShieldCheck, Shuffle, Activity, Signal, Zap } from 'lucide-react'
+import { Cpu, RefreshCw, AlertTriangle, Monitor, Globe, ShieldAlert, ShieldCheck, Shuffle, Activity, Signal, Zap, Stethoscope, Check, X } from 'lucide-react'
 import { useWcarckStore } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { AppTooltip } from '@/components/ui/app-tooltip'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 export function Adapters() {
   const { 
@@ -13,14 +14,16 @@ export function Adapters() {
     checkKill, 
     restoreNetwork, 
     checkKillOutput, 
-    restoreOutput 
+    restoreOutput,
+    runDiagnostics,
+    setRole
   } = useWcarckStore()
   
-  // D92: Adapter transition state
   const [transitioning, setTransitioning] = React.useState<Record<string, boolean>>({})
   const [isKilling, setIsKilling] = React.useState(false)
   const [isRestoring, setIsRestoring] = React.useState(false)
   const [isDryRun, setIsDryRun] = React.useState(false)
+  const [isDiagnosing, setIsDiagnosing] = React.useState<Record<string, boolean>>({})
 
   // Frontend Stubs State
   const [randomMacs, setRandomMacs] = React.useState<Record<string, string>>({})
@@ -75,12 +78,19 @@ export function Adapters() {
     }
   }
 
-  const handleDryRun = () => {
+  const handleDryRun = async () => {
     setIsDryRun(true)
-    setTimeout(() => {
-      useWcarckStore.setState({ checkKillOutput: "Found 3 processes that could cause trouble.\nPID Name\n618 NetworkManager\n720 wpa_supplicant\n810 dhclient\n\n(Dry Run Complete. No processes were killed.)" })
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/adapters/check-kill/dry-run', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      useWcarckStore.setState({ checkKillOutput: data.output || "Dry run complete." })
+    } catch (e) {
+      const err = e as Error
+      toast.error(`Dry run failed: ${err.message}`)
+    } finally {
       setIsDryRun(false)
-    }, 1000)
+    }
   }
 
   const handleRestore = async () => {
@@ -93,38 +103,46 @@ export function Adapters() {
     }
   }
 
-  const handleRandomizeMac = (iface: string, originalMac: string) => {
+  const handleRandomizeMac = async (iface: string, originalMac: string) => {
     setIsRandomizing(prev => ({ ...prev, [iface]: true }))
-    setTimeout(() => {
+    try {
       if (randomMacs[iface]) {
         // Restore
+        const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/mac/restore`, { method: 'POST' })
+        if (!res.ok) throw new Error(await res.text())
         const newMacs = { ...randomMacs }
         delete newMacs[iface]
         setRandomMacs(newMacs)
         toast.success(`${iface} MAC restored to ${originalMac}`)
       } else {
         // Randomize
-        const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase()
-        const fakeMac = `02:${hex()}:${hex()}:${hex()}:${hex()}:${hex()}`
-        setRandomMacs(prev => ({ ...prev, [iface]: fakeMac }))
-        toast.success(`${iface} MAC randomized to ${fakeMac}`)
+        const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/mac/randomize`, { method: 'POST' })
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        setRandomMacs(prev => ({ ...prev, [iface]: data.mac }))
+        toast.success(`${iface} MAC randomized to ${data.mac}`)
       }
+    } catch (e) {
+      toast.error(`MAC operation failed: ${(e as Error).message}`)
+    } finally {
       setIsRandomizing(prev => ({ ...prev, [iface]: false }))
-    }, 1500)
+    }
   }
 
-  const handleInjectionTest = (iface: string) => {
+  const handleInjectionTest = async (iface: string) => {
     setIsInjecting(prev => ({ ...prev, [iface]: true }))
     setInjectionResults(prev => { const res = {...prev}; delete res[iface]; return res; })
     
-    setTimeout(() => {
-      const success = Math.random() > 0.2
-      setInjectionResults(prev => ({ 
-        ...prev, 
-        [iface]: success ? "✅ Injection OK (42/50 ACKs)" : "❌ Injection failed (0/50 ACKs)" 
-      }))
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/injection-test`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setInjectionResults(prev => ({ ...prev, [iface]: data.output }))
+    } catch (e) {
+      setInjectionResults(prev => ({ ...prev, [iface]: `[Error] ${(e as Error).message}` }))
+    } finally {
       setIsInjecting(prev => ({ ...prev, [iface]: false }))
-    }, 2000)
+    }
   }
 
   const totalCount = adapters.length
@@ -176,7 +194,7 @@ export function Adapters() {
               size="sm" 
               onClick={handleCheckKill} 
               disabled={isKilling}
-              className="bg-status-error/10 border-status-error/30 text-status-error hover:bg-status-error/20 h-8"
+              className="bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 h-8"
             >
               <ShieldAlert className={cn("w-3.5 h-3.5 mr-2", isKilling && "animate-spin")} />
               {isKilling ? "Killing..." : "Check Kill"}
@@ -251,7 +269,6 @@ export function Adapters() {
               const isMon = adapter.mode === 'monitor'
               const currentMac = randomMacs[adapter.iface] || adapter.mac
               const isRandomized = !!randomMacs[adapter.iface]
-              const mockRssi = -30 - (Math.random() * 20)
               
               return (
                 <div key={adapter.iface} className="bg-bg-elevated border border-border-subtle rounded-lg shadow-sm relative overflow-hidden flex flex-col group">
@@ -263,7 +280,13 @@ export function Adapters() {
                   )}
 
                   {/* Card Header */}
-                  <div className="p-5 border-b border-border-subtle/50">
+                  <div className={cn("p-5 border-b", 
+                    adapter.role === 'Scanner' ? "border-status-info/50 bg-status-info/5" :
+                    adapter.role === 'Injector' ? "border-status-warning/50 bg-status-warning/5" :
+                    adapter.role === 'AP' ? "border-accent/50 bg-accent/5" :
+                    adapter.role === 'Uplink' ? "border-status-success/50 bg-status-success/5" :
+                    "border-border-subtle/50"
+                  )}>
                     <div className="flex items-start justify-between mb-4">
                       <div>
                         <h3 className="font-bold text-text-primary flex items-center gap-2 text-base">
@@ -271,20 +294,39 @@ export function Adapters() {
                           {adapter.iface}
                         </h3>
                         
-                        {/* RF Kill Status */}
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                          <div className="w-2 h-2 rounded-full bg-status-success animate-pulse-green" />
-                          <span className="text-[10px] font-bold text-status-success uppercase tracking-wider">RF ON</span>
+                        {/* RF Kill Status & Role Badge */}
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-status-success animate-pulse-green" />
+                            <span className="text-[10px] font-bold text-status-success uppercase tracking-wider">RF ON</span>
+                          </div>
+                          {adapter.role && adapter.role !== 'Auto' && (
+                            <span className={cn(
+                              "text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                              adapter.role === 'Scanner' ? "text-status-info border-status-info/30 bg-status-info/10" :
+                              adapter.role === 'Injector' ? "text-status-warning border-status-warning/30 bg-status-warning/10" :
+                              adapter.role === 'AP' ? "text-accent border-accent/30 bg-accent/10" :
+                              "text-status-success border-status-success/30 bg-status-success/10"
+                            )}>
+                              {adapter.role}
+                            </span>
+                          )}
                         </div>
                       </div>
                       
-                      <AppTooltip content={isMon ? "Monitor Mode: passive packet sniffer" : "Managed Mode: active station connection"} side="left">
-                        <span className={cn(
-                          "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border shadow-sm",
-                          isMon ? 'bg-status-success/10 text-status-success border-status-success/30' : 'bg-status-info/10 text-status-info border-status-info/30'
-                        )}>
-                          {adapter.mode}
-                        </span>
+                      <AppTooltip content="Hardware Role Assignment" side="left">
+                        <Select value={adapter.role || 'Auto'} onValueChange={(val) => setRole(adapter.iface, val)}>
+                          <SelectTrigger className="h-7 text-[10px] bg-bg-surface border-border-default hover:bg-bg-hover w-[110px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Auto">🤖 Auto</SelectItem>
+                            <SelectItem value="Scanner">📡 Scanner</SelectItem>
+                            <SelectItem value="Injector">⚡ Injector</SelectItem>
+                            <SelectItem value="AP">🗼 Access Point</SelectItem>
+                            <SelectItem value="Uplink">🌐 Uplink</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </AppTooltip>
                     </div>
                     
@@ -303,7 +345,6 @@ export function Adapters() {
                     </div>
                   </div>
                   
-                  {/* Card Body - Hardware Info */}
                   <div className="p-5 flex-1 space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-xs">
                       <div>
@@ -314,21 +355,52 @@ export function Adapters() {
                         <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1">Driver</div>
                         <div className="text-text-primary text-xs truncate" title={adapter.driver}>{adapter.driver}</div>
                       </div>
+                      
+                      {/* CAPABILITIES MATRIX */}
                       <div className="col-span-2">
-                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1.5">Capabilities</div>
-                        <div className="flex flex-wrap gap-2">
-                          {adapter.bands.map(band => (
-                            <span key={band} className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-bg-surface border border-border-default text-text-secondary">
-                              {band} GHz
-                            </span>
-                          ))}
-                          {adapter.bands.includes(5) && (
-                            <AppTooltip content="Dynamic Frequency Selection rules restrict usage of certain 5 GHz channels under regulatory enforcement" side="top">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-status-warning/10 border border-status-warning/20 text-status-warning flex items-center cursor-help">
-                                <AlertTriangle className="w-3 h-3 mr-1" /> DFS Rules Apply
-                              </span>
-                            </AppTooltip>
-                          )}
+                        <div className="flex justify-between items-center mb-1.5">
+                          <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider">Hardware Capabilities</div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isDiagnosing[adapter.iface]}
+                            onClick={async () => {
+                              setIsDiagnosing(prev => ({...prev, [adapter.iface]: true}))
+                              await runDiagnostics(adapter.iface)
+                              setIsDiagnosing(prev => ({...prev, [adapter.iface]: false}))
+                            }}
+                            className="h-5 px-1.5 text-[9px] font-bold text-accent hover:bg-accent/10"
+                          >
+                            <Stethoscope className={cn("w-3 h-3 mr-1", isDiagnosing[adapter.iface] && "animate-pulse")} />
+                            {isDiagnosing[adapter.iface] ? "Running..." : "Run Diagnostics"}
+                          </Button>
+                        </div>
+                        
+                        <div className="bg-bg-surface border border-border-subtle rounded p-2 grid grid-cols-4 gap-1 text-[9px] font-bold uppercase tracking-wider text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-text-disabled">Monitor</span>
+                            {adapter.capabilities ? (
+                               adapter.capabilities.monitor ? <Check className="w-3.5 h-3.5 text-status-success" /> : <X className="w-3.5 h-3.5 text-status-error" />
+                            ) : <span className="text-text-disabled">—</span>}
+                          </div>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-text-disabled">Inject</span>
+                            {adapter.capabilities ? (
+                               adapter.capabilities.injection > 0.5 ? <Check className="w-3.5 h-3.5 text-status-success" /> : <X className="w-3.5 h-3.5 text-status-error" />
+                            ) : <span className="text-text-disabled">—</span>}
+                          </div>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-text-disabled">AP Mode</span>
+                            {adapter.capabilities ? (
+                               adapter.capabilities.ap ? <Check className="w-3.5 h-3.5 text-status-success" /> : <X className="w-3.5 h-3.5 text-status-error" />
+                            ) : <span className="text-text-disabled">—</span>}
+                          </div>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-text-disabled">5GHz</span>
+                            {adapter.capabilities ? (
+                               adapter.capabilities['5ghz'] ? <Check className="w-3.5 h-3.5 text-status-success" /> : <X className="w-3.5 h-3.5 text-status-error" />
+                            ) : <span className="text-text-disabled">—</span>}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -401,7 +473,7 @@ export function Adapters() {
                       <AppTooltip content="Signal Quality / Adapter RSSI" side="top">
                         <div className="flex items-center text-text-secondary font-bold">
                           <Signal className="w-3 h-3 mr-1" />
-                          {mockRssi.toFixed(0)} dBm
+                          {(adapter.rssi ?? -50).toFixed(0)} dBm
                         </div>
                       </AppTooltip>
                     </div>

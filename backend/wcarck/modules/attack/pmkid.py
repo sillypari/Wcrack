@@ -45,8 +45,13 @@ class PMKIDModule(Module):
         
         # Detect hcxdumptool version for parameter compatibility
         try:
-            import subprocess
-            version_out = subprocess.check_output(["hcxdumptool", "--version"], text=True)
+            version_proc = await asyncio.create_subprocess_exec(
+                "hcxdumptool", "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(version_proc.communicate(), timeout=5.0)
+            version_out = stdout.decode(errors="ignore")
             v_match = __import__('re').search(r'hcxdumptool (\d+\.\d+\.\d+)', version_out)
             version = v_match.group(1) if v_match else "6.0.0"
         except Exception:
@@ -69,7 +74,14 @@ class PMKIDModule(Module):
                 
             # Compile BPF if tcpdump is available
             try:
-                subprocess.check_call(["tcpdump", "-i", iface, "-ddd", "-y", "IEEE802_11_RADIO", f"wlan addr1 {bssid}"], stdout=open(bpf_file, "w"))
+                bpf_proc = await asyncio.create_subprocess_exec(
+                    "tcpdump", "-i", iface, "-ddd", "-y", "IEEE802_11_RADIO", f"wlan addr1 {bssid}",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                bpf_out, _ = await asyncio.wait_for(bpf_proc.communicate(), timeout=10.0)
+                with open(bpf_file, "w") as bf:
+                    bf.write(bpf_out.decode(errors="ignore"))
                 cmd.extend(["--bpf", bpf_file])
             except Exception as e:
                 logger.warning(f"Failed to compile BPF filter for hcxdumptool v6.3+: {e}")

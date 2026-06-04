@@ -7,7 +7,6 @@ from wcarck.core.event_bus import bus
 from wcarck.hardware.process import ManagedProcess
 from wcarck.db.session import SessionLocal
 from wcarck.db.models import Credential, SessionLog
-from sqlalchemy import select
 from datetime import datetime, timezone
 import structlog
 
@@ -56,9 +55,9 @@ class MITMModule(Module):
             await self._process.start()
         else:
             cmd = [
-                "tcpdump", "-i", iface, "-l", "-n",
+                "sudo", "tcpdump", "-i", iface, "-l", "-n",
                 "-s", "0",
-                "tcp port 80 or tcp port 8080 or tcp port 443 or udp port 53",
+                "tcp port 80 or tcp port 8080 or udp port 53",
                 "-A"
             ]
             self._process = ManagedProcess(cmd=cmd, job_id=job_id)
@@ -92,7 +91,6 @@ class MITMModule(Module):
 
         current_url = ""
         current_host = ""
-        post_buffer = b""
 
         while self._running:
             try:
@@ -143,50 +141,63 @@ class MITMModule(Module):
                 logger.debug(f"MITM parse error: {e}")
                 continue
 
-        bus.publish("module.stopped", {"job_id": job_id, "module": self.name})
         self._running = False
 
-    async def _save_credential(self, job_id: str, data: Dict[str, Any]):
-        try:
-            async with SessionLocal() as session:
-                cred = Credential(
-                    network_ssid=data.get("host", "Unknown"),
-                    bssid="",
-                    password=data["password"],
-                    client_mac="FF:FF:FF:FF:FF:FF",
-                    validated=True,
-                    username=data.get("username", ""),
-                    type="portal",
-                    captured_at=datetime.now(timezone.utc).replace(tzinfo=None)
-                )
-                session.add(cred)
-                await session.flush()
+    async def _save_credential(self, job_id: str, data: Dict[str, Any], retries=3):
+        for attempt in range(retries):
+            try:
+                async with SessionLocal() as session:
+                    cred = Credential(
+                        network_ssid=data.get("host", "Unknown"),
+                        bssid="",
+                        password=data["password"],
+                        client_mac="FF:FF:FF:FF:FF:FF",
+                        validated=True,
+                        username=data.get("username", ""),
+                        type="portal",
+                        captured_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    )
+                    session.add(cred)
+                    await session.flush()
 
-                log = SessionLog(
-                    action="mitm_credential",
-                    target=data.get("host", ""),
-                    result="captured",
-                    detail={
+                    log = SessionLog(
+                        action="mitm_credential",
+                        target=data.get("host", ""),
+                        result="captured",
+                        detail={
+                            "username": data.get("username", ""),
+                            "url": data.get("url", ""),
+                            "source": data.get("source", "http_sniff")
+                        }
+                    )
+                    session.add(log)
+                    await session.commit()
+
+                    bus.publish("credential.captured", {
+                        "id": cred.id,
+                        "ssid": data.get("host", "Unknown"),
+                        "bssid": "",
+                        "password": data["password"],
+                        "source": "mitm"
+                    })
+
+                    self._credentials_found.append({
+                        "id": cred.id,
                         "username": data.get("username", ""),
-                        "url": data.get("url", ""),
-                        "source": data.get("source", "http_sniff")
-                    }
-                )
-                session.add(log)
-                await session.commit()
+                        "host": data.get("host", ""),
+                        "captured_at": datetime.now(timezone.utc).isoformat()
+                    })
 
-                bus.publish("credential.captured", {
-                    "id": cred.id,
-                    "ssid": data.get("host", "Unknown"),
-                    "bssid": "",
-                    "password": data["password"],
-                    "source": "mitm"
-                })
+                    logger.info(f"MITM captured credential: {data.get('username', '?')}@{data.get('host', '?')}")
 
-                logger.info(f"MITM captured credential: {data.get('username', '?')}@{data.get('host', '?')}")
+                    return
 
-        except Exception as e:
-            logger.error(f"Failed to save MITM credential: {e}")
+            except Exception as e:
+                logger.error(f"Failed to save MITM credential (attempt {attempt+1}): {e}")
+                if attempt == retries - 1:
+                    logger.error("Max retries reached. Credential lost.")
+                else:
+                    await asyncio.sleep(0.5)
 
     async def stop(self, job_id: str) -> None:
         self._running = False

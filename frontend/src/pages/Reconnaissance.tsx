@@ -101,13 +101,6 @@ export function Reconnaissance() {
   const [berlinMode, setBerlinMode] = React.useState(false)
   const [minSignal, setMinSignal] = React.useState(-95)
 
-  // Advanced Deauth Modal State
-  const [isDeauthModalOpen, setIsDeauthModalOpen] = React.useState(false)
-  const [deauthClientMac, setDeauthClientMac] = React.useState('FF:FF:FF:FF:FF:FF')
-  const [deauthCount, setDeauthCount] = React.useState(64)
-  const [deauthContinuous, setDeauthContinuous] = React.useState(false)
-  const [deauthReason, setDeauthReason] = React.useState(1)
-
   const parentRef = React.useRef<HTMLDivElement>(null)
 
   const selectedBssid = uiState.focusedNetworkBssid
@@ -116,6 +109,8 @@ export function Reconnaissance() {
   const activeIface = React.useMemo(() => {
     return monitorAdapters.some(a => a.iface === selectedIface) ? selectedIface : (monitorAdapters[0]?.iface || '')
   }, [monitorAdapters, selectedIface])
+  const activeIfaceObj = React.useMemo(() => monitorAdapters.find(a => a.iface === activeIface), [monitorAdapters, activeIface])
+  const supports5G = React.useMemo(() => activeIfaceObj?.bands?.includes(5) || false, [activeIfaceObj])
   const setSelectedBssid = (bssid: string | null) => setUiState({ focusedNetworkBssid: bssid })
 
   const validChannels = React.useMemo(() => {
@@ -131,6 +126,12 @@ export function Reconnaissance() {
       setSelectedChannel('all')
     }
   }, [validChannels, selectedChannel])
+
+  React.useEffect(() => {
+    if (!supports5G && selectedBand !== 'bg') {
+      setSelectedBand('bg')
+    }
+  }, [supports5G, selectedBand])
 
   // Data Pipeline with Advanced Filtering
   const data = React.useMemo(() => {
@@ -357,14 +358,14 @@ export function Reconnaissance() {
           {/* Band selector */}
           <div className="flex items-center gap-2 text-sm text-text-secondary">
             <span className="text-text-disabled text-[10px] uppercase font-bold tracking-wider">Band:</span>
-            <Select value={selectedBand} onValueChange={setSelectedBand} disabled={isScanning}>
+            <Select value={selectedBand} onValueChange={setSelectedBand} disabled={isScanning || !supports5G}>
               <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-8 w-[90px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="bg">2.4 GHz</SelectItem>
-                <SelectItem value="a">5 GHz</SelectItem>
-                <SelectItem value="abg">2.4 + 5 GHz</SelectItem>
+                {supports5G && <SelectItem value="a">5 GHz</SelectItem>}
+                {supports5G && <SelectItem value="abg">2.4 + 5 GHz</SelectItem>}
               </SelectContent>
             </Select>
           </div>
@@ -675,19 +676,6 @@ export function Reconnaissance() {
                             </div>
                           </div>
                           <div>
-                            {activeIface && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeauthClientMac(client.mac)
-                                  setIsDeauthModalOpen(true)
-                                }}
-                                title="Targeted deauth this client"
-                                className="opacity-0 group-hover/cli:opacity-100 transition-opacity text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-status-error/10 text-status-error border border-status-error/25 hover:bg-status-error/20"
-                              >
-                                Deauth
-                              </button>
-                            )}
                           </div>
                         </div>
                       ))}
@@ -703,14 +691,10 @@ export function Reconnaissance() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="bg-status-error/8 hover:bg-status-error/16 text-status-error border-status-error/25 w-full"
+                      className="bg-bg-active hover:bg-bg-hover border-border-subtle w-full text-text-primary"
                       onClick={() => {
-                        if (!activeIface) {
-                          toast.error("No active monitor interface selected.")
-                          return
-                        }
-                        setDeauthClientMac('FF:FF:FF:FF:FF:FF')
-                        setIsDeauthModalOpen(true)
+                        setUiState({ focusedNetworkBssid: selectedNetwork.bssid })
+                        navigate('/attack')
                       }}
                     >
                       <WifiOff className="w-3.5 h-3.5 mr-1.5" />Deauth
@@ -722,11 +706,8 @@ export function Reconnaissance() {
                       size="sm"
                       className="bg-bg-active hover:bg-bg-hover border-border-subtle w-full text-text-primary"
                       onClick={() => {
-                        if (!activeIface) {
-                          toast.error("No active monitor interface selected.")
-                          return
-                        }
-                        startJob('pmkid', { bssid: selectedNetwork.bssid, iface: activeIface, channel: selectedNetwork.channel })
+                        setUiState({ focusedNetworkBssid: selectedNetwork.bssid })
+                        navigate('/attack')
                       }}
                     >
                       <Download className="w-3.5 h-3.5 mr-1.5" />PMKID
@@ -749,144 +730,6 @@ export function Reconnaissance() {
         </ContextualPanel>
       </div>
 
-      {/* ── ADVANCED DEAUTH MODAL ────────────────────────────────────────── */}
-      {isDeauthModalOpen && selectedNetwork && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-bg-elevated border border-border-default rounded-xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 animate-scale-in">
-            <div className="flex justify-between items-start border-b border-border-subtle pb-3">
-              <div>
-                <h3 className="text-md font-bold text-text-primary">Advanced Deauthentication</h3>
-                <p className="text-xs text-text-disabled mt-0.5">Target AP: {selectedNetwork.ssid || selectedNetwork.bssid}</p>
-              </div>
-              <button 
-                onClick={() => setIsDeauthModalOpen(false)}
-                className="text-text-disabled hover:text-text-primary font-mono text-sm leading-none"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              {/* Target Station */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-text-secondary">Target Station</label>
-                <Select
-                  value={deauthClientMac}
-                  onValueChange={val => setDeauthClientMac(val)}
-                >
-                  <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-9 w-full">
-                    <SelectValue placeholder="Select target station" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="FF:FF:FF:FF:FF:FF">FF:FF:FF:FF:FF:FF (Broadcast / All Clients)</SelectItem>
-                    {connectedClients.map(c => (
-                      <SelectItem key={c.mac} value={c.mac}>{c.mac}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Packet Count & Continuous Toggle */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-text-secondary">Packet Count</label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={10000}
-                    step={10}
-                    disabled={deauthContinuous}
-                    value={deauthCount}
-                    onChange={e => setDeauthCount(Number(e.target.value))}
-                    className="bg-bg-surface border border-border-subtle rounded px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-40"
-                  />
-                </div>
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-text-secondary cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={deauthContinuous}
-                      onChange={e => setDeauthContinuous(e.target.checked)}
-                      className="rounded border-border-subtle text-accent focus:ring-accent bg-bg-surface h-4 w-4"
-                    />
-                    Continuous Attack
-                  </label>
-                </div>
-              </div>
-
-              {/* Reason Code */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-text-secondary">IEEE 802.11 Reason Code</label>
-                <Select
-                  value={deauthReason.toString()}
-                  onValueChange={val => setDeauthReason(Number(val))}
-                >
-                  <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-9 w-full">
-                    <SelectValue placeholder="Select reason code" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Unspecified</SelectItem>
-                    <SelectItem value="2">2 - Previous authentication no longer valid</SelectItem>
-                    <SelectItem value="3">3 - Deauth leaving STA (Unsubscribed)</SelectItem>
-                    <SelectItem value="4">4 - Disassociated due to inactivity</SelectItem>
-                    <SelectItem value="6">6 - Class 2 frame received from nonauthenticated STA</SelectItem>
-                    <SelectItem value="7">7 - Class 3 frame received from nonassociated STA</SelectItem>
-                    <SelectItem value="8">8 - Disassociated leaving STA</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Live Status Tracker */}
-              {activeJobs.some(j => j.type === 'deauth' && j.target === selectedNetwork.bssid) ? (
-                (() => {
-                  const job = activeJobs.find(j => j.type === 'deauth' && j.target === selectedNetwork.bssid)
-                  return (
-                    <div className="bg-black/90 p-4 rounded-lg font-mono text-xs border border-border-subtle text-status-success flex flex-col gap-2 mt-2">
-                      <div className="flex justify-between items-center text-[10px] text-text-disabled uppercase font-bold border-b border-border-subtle pb-1">
-                        <span>Live Attack Status</span>
-                        <span className="animate-pulse flex h-2 w-2 rounded-full bg-status-error" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-text-primary">
-                        <div>Bursts Sent: <span className="text-status-success font-bold">{job?.framesSent || 0}</span></div>
-                        <div>ACKs Received: <span className="text-status-success font-bold">{job?.acks || 0}</span></div>
-                      </div>
-                      {job?.status_message && (
-                        <div className="text-[10px] text-text-secondary mt-1 max-w-full truncate">{job.status_message}</div>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="mt-2 w-full text-xs h-8 bg-status-error hover:bg-status-error/90 text-white"
-                        onClick={() => job && stopJob(job.id)}
-                      >
-                        Stop Attack
-                      </Button>
-                    </div>
-                  )
-                })()
-              ) : (
-                <Button
-                  onClick={() => {
-                    if (!activeIface) return
-                    startJob('deauth', {
-                      bssid: selectedNetwork.bssid,
-                      client_mac: deauthClientMac,
-                      count: deauthCount,
-                      continuous: deauthContinuous,
-                      reason: deauthReason,
-                      iface: activeIface
-                    })
-                  }}
-                  disabled={!activeIface}
-                  className="w-full bg-status-error text-white hover:bg-status-error/90 mt-2 h-9 flex items-center justify-center gap-1.5 font-bold shadow-glow-error"
-                >
-                  <WifiOff className="w-4 h-4" /> Start Deauth Attack
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
   )
 }

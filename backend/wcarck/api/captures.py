@@ -88,58 +88,31 @@ async def clean_capture(capture_id: str, db: AsyncSession = Depends(get_db)):
     if not os.path.exists(src_path):
         raise HTTPException(status_code=404, detail=f"Capture file not found: {src_path}")
         
-    # Generate clean capture path
-    base_dir = os.path.dirname(src_path)
-    base_name = os.path.basename(src_path)
-    clean_name = f"clean_{base_name}"
-    clean_path = os.path.join(base_dir, clean_name)
+    original_size = cap.size_bytes or os.path.getsize(src_path)
     
-    # Run wpaclean: wpaclean <out.cap> <in.cap>
-    cmd = ["wpaclean", clean_path, src_path]
-    if os.name == 'nt':
-        # Mock for development host - just copy file
-        import shutil
-        shutil.copyfile(src_path, clean_path)
-    else:
-        # Linux execution
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", "-n", *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await proc.communicate()
-        
-    if not os.path.exists(clean_path):
+    from wcarck.utils.pcap import strip_with_wpaclean
+    success, orig_sz, new_sz = await strip_with_wpaclean(src_path)
+    
+    if not success:
         raise HTTPException(status_code=500, detail="wpaclean failed to create clean file")
-        
-    # Calculate new hash and size
-    sha256_hash = hashlib.sha256()
-    with open(clean_path, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    new_sha256 = sha256_hash.hexdigest()
-    new_size = os.path.getsize(clean_path)
     
-    # Overwrite original capture metadata/file or update database to point to clean file
-    # To keep it safe and avoid path mismatches in cracking tools, let's rename the clean file to replace the original
-    try:
-        os.replace(clean_path, src_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to replace original capture: {e}")
-        
-    # Update db record
-    cap.sha256 = new_sha256
-    cap.size_bytes = new_size
+    new_sha256 = hashlib.sha256()
+    with open(src_path, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            new_sha256.update(byte_block)
+    
+    cap.sha256 = new_sha256.hexdigest()
+    cap.size_bytes = new_sz
     await db.commit()
     
     return {
         "status": "success",
         "message": "PCAP cleaned successfully",
-        "sha256": new_sha256,
-        "size_bytes": new_size,
-        "original_size": cap.size_bytes or 0,
-        "reduction_bytes": (cap.size_bytes or 0) - new_size,
-        "reduction_pct": round(((cap.size_bytes or 0) - new_size) / (cap.size_bytes or 1) * 100, 1)
+        "sha256": cap.sha256,
+        "size_bytes": new_sz,
+        "original_size": original_size,
+        "reduction_bytes": original_size - new_sz,
+        "reduction_pct": round((original_size - new_sz) / (original_size or 1) * 100, 1)
     }
 
 @router.get("/{capture_id}/stations", response_model=List[ClientRes])

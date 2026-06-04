@@ -12,29 +12,48 @@ export function useAudioAlerts() {
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
         if (AudioContextClass) {
           audioContext.current = new AudioContextClass()
+          if (audioContext.current.state === 'suspended') {
+            audioContext.current.resume()
+          }
         }
+      } else if (audioContext.current.state === 'suspended') {
+        audioContext.current.resume()
       }
     }
 
     const playTone = (frequency: number, type: OscillatorType, duration: number, vol = 0.1) => {
-      initAudio()
-      if (!audioContext.current) return
-      
-      const osc = audioContext.current.createOscillator()
-      const gain = audioContext.current.createGain()
-      
-      osc.type = type
-      osc.frequency.setValueAtTime(frequency, audioContext.current.currentTime)
-      
-      gain.gain.setValueAtTime(vol, audioContext.current.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.01, audioContext.current.currentTime + duration)
-      
-      osc.connect(gain)
-      gain.connect(audioContext.current.destination)
-      
-      osc.start()
-      osc.stop(audioContext.current.currentTime + duration)
+      try {
+        initAudio()
+        if (!audioContext.current) return
+        
+        const osc = audioContext.current.createOscillator()
+        const gain = audioContext.current.createGain()
+        
+        osc.type = type
+        osc.frequency.setValueAtTime(frequency, audioContext.current.currentTime)
+        
+        gain.gain.setValueAtTime(vol, audioContext.current.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.current.currentTime + duration)
+        
+        osc.connect(gain)
+        gain.connect(audioContext.current.destination)
+        
+        osc.start()
+        osc.stop(audioContext.current.currentTime + duration)
+      } catch (e) {
+        console.warn('[Wcarck] Audio alert failed:', e)
+      }
     }
+
+    initAudio()
+
+    const resumeOnGesture = () => {
+      if (audioContext.current?.state === 'suspended') {
+        audioContext.current.resume()
+      }
+    }
+    document.addEventListener('click', resumeOnGesture, { once: true, capture: true })
+    document.addEventListener('keydown', resumeOnGesture, { once: true, capture: true })
 
     // Subscribe to store changes
     const unsubCaptures = useWcarckStore.subscribe(
@@ -58,7 +77,7 @@ export function useAudioAlerts() {
         if (!audioEnabled) return
 
         if (creds.length > prevCreds.length) {
-          const latest = creds[creds.length - 1]
+          const latest = creds[0]
           if (latest.valid) {
              // Valid credential - high pitch double beep
              playTone(880, 'square', 0.1, 0.05)
@@ -92,6 +111,8 @@ export function useAudioAlerts() {
       unsubCaptures()
       unsubCredentials()
       unsubLogs()
+      document.removeEventListener('click', resumeOnGesture)
+      document.removeEventListener('keydown', resumeOnGesture)
       if (audioContext.current?.state !== 'closed') {
         audioContext.current?.close()
       }

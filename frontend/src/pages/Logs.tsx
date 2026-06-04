@@ -187,6 +187,7 @@ export function Logs() {
                 size="icon" 
                 onClick={() => setIsCompact(!isCompact)} 
                 className={cn("bg-bg-active border-border-default text-text-secondary hover:text-text-primary h-8 w-8", isCompact && "text-accent border-accent/50 bg-accent/10")}
+                aria-label={isCompact ? "Standard View" : "Compact View"}
               >
                 {isCompact ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
               </Button>
@@ -201,6 +202,7 @@ export function Logs() {
                   if (!isAutoScrollEnabled) logsEndRef.current?.scrollIntoView()
                 }} 
                 className={cn("bg-bg-active border-border-default h-8 w-8", !isAutoScrollEnabled ? "text-status-warning border-status-warning/50 bg-status-warning/10" : "text-text-secondary hover:text-text-primary")}
+                aria-label={isAutoScrollEnabled ? "Pause Auto-scroll" : "Resume Auto-scroll"}
               >
                 {!isAutoScrollEnabled ? <Play className="w-3.5 h-3.5" fill="currentColor" /> : <Pause className="w-3.5 h-3.5" fill="currentColor" />}
               </Button>
@@ -211,7 +213,7 @@ export function Logs() {
               Export .jsonl
             </Button>
 
-            <Button variant="outline" size="sm" onClick={clearLogs} className="bg-status-error/10 border-status-error/30 text-status-error hover:bg-status-error/20 h-8">
+            <Button variant="outline" size="sm" onClick={clearLogs} className="bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 h-8">
               <Trash2 className="w-3.5 h-3.5 mr-2" />
               Clear
             </Button>

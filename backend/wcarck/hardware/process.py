@@ -31,6 +31,7 @@ class ManagedProcess:
         self.track_stdout = track_stdout
         self._process: Optional[asyncio.subprocess.Process] = None
         self._task_group: Optional[asyncio.TaskGroup] = None
+        self._drain_tasks: List[asyncio.Task] = []
 
     async def start(self) -> None:
         """Starts the process in its own session/process group."""
@@ -72,8 +73,8 @@ class ManagedProcess:
         if self.track_stdout:
             # We must use TaskGroup or ensure drains to avoid pipe deadlock
             # Note: TaskGroup requires Python 3.11+
-            asyncio.create_task(self._drain_stdout())
-        asyncio.create_task(self._drain_stderr())
+            self._drain_tasks.append(asyncio.create_task(self._drain_stdout()))
+        self._drain_tasks.append(asyncio.create_task(self._drain_stderr()))
 
     async def _drain_stdout(self):
         if not self._process or not self._process.stdout:
@@ -103,68 +104,48 @@ class ManagedProcess:
         """Kills the entire process tree, handling hcxdumptool exceptions."""
         if not self._process:
             return
+
+        # Cancel drain tasks first
+        for task in self._drain_tasks:
+            task.cancel()
+        self._drain_tasks.clear()
             
         if self._process.returncode is None:
             pid = self._process.pid
-            
-            # hcxdumptool IGNORES SIGINT and needs SIGTERM then SIGKILL (Edge Case 3.1)
-            is_hcx = any("hcxdumptool" in arg for arg in self.cmd)
-            
-            try:
-                import psutil
+
+            if os.name == 'posix':
                 try:
-                    parent = psutil.Process(pid)
-                    children = parent.children(recursive=True)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    children = []
-                    parent = None
+                    pgid = os.getpgid(pid)
+                except ProcessLookupError:
+                    pgid = None
 
-                # Terminate tree
-                if is_hcx:
-                    if os.name == 'posix':
-                        os.killpg(os.getpgid(pid), signal.SIGTERM)
-                    else:
-                        self._process.terminate()
-                else:
-                    for child in children:
-                        try:
-                            child.terminate()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                    if parent:
-                        try:
-                            parent.terminate()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
+                if pgid is not None:
+                    try:
+                        os.killpg(pgid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
 
-                # Wait with timeout
-                if parent or children:
-                    gone, alive = psutil.wait_procs(children + ([parent] if parent else []), timeout=grace)
-                    # SIGKILL survivors
-                    for p in alive:
-                        try:
-                            p.kill()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
+                await asyncio.sleep(2.0)
 
-            except ImportError:
-                # Fallback to os.killpg
+                if pgid is not None:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            else:
                 try:
-                    if os.name == 'posix':
-                        if is_hcx:
-                            os.killpg(os.getpgid(pid), signal.SIGTERM)
-                            await asyncio.sleep(2.0) # wait for flush
-                        os.killpg(os.getpgid(pid), signal.SIGKILL)
-                    else:
-                        self._process.kill()
+                    self._process.terminate()
                 except ProcessLookupError:
                     pass
-                    
+
             try:
                 await asyncio.wait_for(self._process.wait(), timeout=grace)
             except asyncio.TimeoutError:
                 try:
-                    self._process.kill()
+                    if os.name == 'posix' and pgid is not None:
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        self._process.kill()
                 except ProcessLookupError:
                     pass
                 await self._process.wait()

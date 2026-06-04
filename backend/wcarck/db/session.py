@@ -125,15 +125,17 @@ async def run_wal_checkpoint_task():
     db_path = DB_URL.replace("sqlite+aiosqlite:///", "")
     wal_path = f"{db_path}-wal"
     if os.path.exists(wal_path) and os.path.getsize(wal_path) > 1024 * 1024 * 50:
-        # If WAL is strangely large (> 50MB) on startup, force truncate
+        # If WAL is strangely large (>50MB) on startup, force truncate
         import sqlite3
         logger.warning(f"Large WAL file detected ({os.path.getsize(wal_path)} bytes) on startup. Forcing TRUNCATE.")
-        try:
-            sync_conn = sqlite3.connect(db_path)
-            sync_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            sync_conn.close()
-        except Exception as e:
-            logger.error(f"Failed to truncate WAL: {e}")
+        def _sync_truncate():
+            try:
+                sync_conn = sqlite3.connect(db_path)
+                sync_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                sync_conn.close()
+            except Exception as e:
+                logger.error(f"Failed to truncate WAL: {e}")
+        await asyncio.to_thread(_sync_truncate)
 
     while True:
         try:

@@ -288,8 +288,8 @@ export function Dashboard() {
                   </div>
                   <div className="grid grid-cols-2 gap-y-2 text-xs font-mono text-text-secondary">
                     <div>CH: {targetNetwork.channel}</div>
-                    <div>ENC: <span className={targetNetwork.encryption.includes('WPA') ? 'text-status-success' : 'text-status-warning'}>{targetNetwork.encryption}</span></div>
-                    <div>PWR: {targetNetwork.signal} dBm</div>
+                    <div>ENC: <span className={(targetNetwork.encryption || '').includes('WPA') ? 'text-status-success' : 'text-status-warning'}>{targetNetwork.encryption || 'Unknown'}</span></div>
+                    <div>PWR: {targetNetwork.power ?? '—'} dBm</div>
                     <div>CLI: {targetClientsCount}</div>
                   </div>
                 </>
@@ -381,7 +381,7 @@ export function Dashboard() {
                             <div className="w-1.5 h-1.5 rounded-full bg-status-info" />
                             <div className="flex flex-col min-w-0">
                                <span className="text-xs font-bold text-text-primary truncate">{cred.ssid}</span>
-                               <span className="text-[10px] font-mono text-status-info truncate">{cred.password || 'N/A'}</span>
+                               <span className="text-[10px] font-mono text-status-info truncate">{cred.plainText || 'N/A'}</span>
                             </div>
                           </div>
                        </div>

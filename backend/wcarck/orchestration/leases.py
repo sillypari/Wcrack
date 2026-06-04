@@ -2,6 +2,9 @@ import asyncio
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional
+import structlog
+
+logger = structlog.get_logger()
 
 class ResourceBusyError(Exception):
     def __init__(self, message: str, active_job_id: str):
@@ -17,7 +20,7 @@ class Lease:
     expires_at: float
 
 
-from collections import defaultdict
+
 
 class RadioLeaseManager:
     """
@@ -28,9 +31,15 @@ class RadioLeaseManager:
     def __init__(self, ttl_seconds: float = 30.0):
         self.ttl_seconds = ttl_seconds
         self._leases: Dict[str, Lease] = {}  # key: resource_id
-        self._adapter_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._adapter_locks: Dict[str, asyncio.Lock] = {}
         self._sweeper_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+
+    def _get_adapter_lock(self, resource_id: str) -> asyncio.Lock:
+        """Get or create a per-adapter lock. Must be called from the event loop."""
+        if resource_id not in self._adapter_locks:
+            self._adapter_locks[resource_id] = asyncio.Lock()
+        return self._adapter_locks[resource_id]
 
     async def start_sweeper(self):
         """Starts the background task to orphan expired leases."""
@@ -52,25 +61,25 @@ class RadioLeaseManager:
             try:
                 await asyncio.sleep(1.0)
                 now = time.monotonic()
-                # Snapshot keys so we don't lock everything simultaneously
                 keys = list(self._leases.keys())
                 for key in keys:
-                    async with self._adapter_locks[key]:
+                    lock = self._get_adapter_lock(key)
+                    async with lock:
                         lease = self._leases.get(key)
                         if lease and lease.expires_at < now:
-                            # In a real app we'd publish `lease.expired` to EventBus here
                             del self._leases[key]
             except asyncio.CancelledError:
                 break
-            except Exception:
-                continue
+            except Exception as e:
+                logger.error(f"Lease sweeper error: {e}")
 
     async def acquire(self, job_id: str, resource_id: str, lease_type: str) -> None:
         """
         Attempt to acquire a lease on a resource.
         Raises ResourceBusyError if there is a conflict.
         """
-        async with self._adapter_locks[resource_id]:
+        lock = self._get_adapter_lock(resource_id)
+        async with lock:
             existing = self._leases.get(resource_id)
             if existing:
                 if existing.job_id == job_id:
@@ -108,14 +117,16 @@ class RadioLeaseManager:
 
     async def renew(self, job_id: str, resource_id: str) -> None:
         """Renew a lease to prevent expiration."""
-        async with self._adapter_locks[resource_id]:
+        lock = self._get_adapter_lock(resource_id)
+        async with lock:
             existing = self._leases.get(resource_id)
             if existing and existing.job_id == job_id:
                 existing.expires_at = time.monotonic() + self.ttl_seconds
 
     async def release(self, job_id: str, resource_id: str) -> None:
         """Release a lease when a job finishes."""
-        async with self._adapter_locks[resource_id]:
+        lock = self._get_adapter_lock(resource_id)
+        async with lock:
             existing = self._leases.get(resource_id)
             if existing and existing.job_id == job_id:
                 del self._leases[resource_id]
@@ -124,3 +135,18 @@ class RadioLeaseManager:
                     "job_id": job_id,
                     "resource_id": resource_id
                 })
+
+    async def release_all_for_job(self, job_id: str) -> None:
+        """Release all leases held by a specific job. Used on crash/stop."""
+        keys_to_release = [k for k, v in list(self._leases.items()) if v.job_id == job_id]
+        for key in keys_to_release:
+            lock = self._get_adapter_lock(key)
+            async with lock:
+                existing = self._leases.get(key)
+                if existing and existing.job_id == job_id:
+                    del self._leases[key]
+                    from wcarck.core.event_bus import bus
+                    bus.publish("lease.released", {
+                        "job_id": job_id,
+                        "resource_id": key
+                    })

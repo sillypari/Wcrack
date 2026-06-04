@@ -10,7 +10,7 @@ async def test_deauth_module():
     lease_manager = RadioLeaseManager()
     module = DeauthModule(lease_manager)
     
-    await module.start("job-deauth-1", {"bssid": "00:11:22:33:44:55", "iface": "wlan_mon"})
+    await module.start("job-deauth-1", {"bssid": "00:11:22:33:44:55", "iface": "wlan_mon", "client_mac": "00:aa:bb:cc:dd:ee"})
     assert lease_manager._leases["wlan_mon"].job_id == "job-deauth-1"
     assert lease_manager._leases["wlan_mon"].lease_type == "monitor.locked"
     

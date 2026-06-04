@@ -334,13 +334,13 @@ export function Captures() {
                   <div className="w-16 flex-shrink-0">
                     <span className={cn(
                       'text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border',
-                      cap.type === 'eapol' || cap.type === 'wpa_handshake'
+                      cap.type === 'eapol'
                         ? 'bg-status-info/15 text-status-info border-status-info/25'
                         : cap.type === 'pmkid'
                         ? 'bg-accent/15 text-accent border-accent/25'
                         : 'bg-status-warning/15 text-status-warning border-status-warning/25'
                     )}>
-                      {cap.type === 'wpa_handshake' ? 'EAPOL' : cap.type}
+                      {cap.type.toUpperCase()}
                     </span>
                   </div>
 
@@ -357,7 +357,7 @@ export function Captures() {
 
                   {/* EAPOL */}
                   <div className="w-28 flex-shrink-0">
-                    {(cap.type === 'eapol' || cap.type === 'wpa_handshake') ? (
+                    {cap.type === 'eapol' ? (
                       <EapolMini m1={cap.eapolM1} m2={cap.eapolM2} m3={cap.eapolM3} m4={cap.eapolM4} />
                     ) : (
                       <span className="text-text-disabled text-xs font-mono">-</span>

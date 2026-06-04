@@ -33,10 +33,7 @@ function PasswordCell({ credential, globalShow }: { credential: Credential, glob
       <Button 
         variant="ghost"
         size="icon"
-        onClick={() => {
-          navigator.clipboard.writeText(credential.plainText || '')
-          toast.success("Password copied")
-        }}
+        onClick={handleCopy}
         className="h-7 w-7 text-text-secondary hover:text-text-primary bg-bg-surface border border-border-subtle"
         aria-label="Copy password"
       >

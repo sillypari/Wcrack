@@ -28,13 +28,13 @@ async def test_lease_manager_acquire_release():
 
 def test_scanner_csv_parser():
     # Mock a CSV file with quoted commas in SSID
-    csv_content = \"\"\"
+    csv_content = """
 BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
 AA:BB:CC:DD:EE:FF, 2026-06-04 12:00:00, 2026-06-04 12:00:00,  1,   54, WPA2, CCMP, PSK, -65,      100,        0,  0.  0.  0.  0,  12, "My, Home, Wi-Fi", 
 
 Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
 11:22:33:44:55:66, 2026-06-04 12:00:00, 2026-06-04 12:00:00, -70,       50, AA:BB:CC:DD:EE:FF, "My, Home, Wi-Fi"
-\"\"\"
+"""
     import tempfile
     import os
     

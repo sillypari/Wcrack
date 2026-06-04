@@ -73,20 +73,21 @@ class DBEventListener:
     async def _on_credential(self, payload: dict):
         try:
             from wcarck.db.models import Credential
-            import uuid
             async with SessionLocal() as session:
                 cred = Credential(
-                    id=str(uuid.uuid4()),
                     bssid=payload.get("bssid", "ANY"),
-                    ssid=payload.get("ssid", "Unknown"),
+                    network_ssid=payload.get("ssid") or payload.get("network_ssid") or "Unknown",
                     type=payload.get("type", "wpa_psk"),
                     username=payload.get("username", ""),
-                    plain_text=payload.get("plainText", ""),
-                    created_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    password=payload.get("plainText") or payload.get("password") or "",
+                    client_mac=payload.get("clientMac") or payload.get("client_mac", ""),
+                    client_ip=payload.get("client_ip", ""),
+                    validated=payload.get("valid") or payload.get("validated") or False,
+                    captured_at=datetime.now(timezone.utc).replace(tzinfo=None)
                 )
                 session.add(cred)
                 await session.commit()
-            logger.info(f"Saved cracked credential to DB: {payload.get('plainText')}")
+            logger.info(f"Saved cracked credential to DB: {payload.get('plainText') or payload.get('password')}")
         except Exception as e:
             logger.error(f"Failed to save credential to DB: {e}")
 

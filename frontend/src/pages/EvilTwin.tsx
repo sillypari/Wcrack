@@ -26,31 +26,30 @@ function StepIndicator({ current }: { current: number }) {
     { num: 3, label: 'Launch',   icon: Play },
   ]
   return (
-    <div className="flex items-center px-8 py-4 border-b border-border-subtle flex-shrink-0 relative">
-      {/* Track container centered on icons */}
-      <div className="absolute left-[50px] right-[50px] top-[34px] h-px z-0 -translate-y-1/2">
+    <div className="flex items-center justify-center py-6 border-b border-border-subtle flex-shrink-0 relative">
+      <div className="absolute left-[50%] w-[300px] -translate-x-1/2 top-[42px] h-px z-0">
         <div className="w-full h-full bg-border-subtle" />
         <div
           className="absolute left-0 top-0 h-full bg-accent transition-all duration-500 ease-out"
           style={{ width: `${(current - 1) * 50}%` }}
         />
       </div>
-      <div className="flex justify-between w-full z-10">
+      <div className="flex justify-between w-[380px] z-10">
         {steps.map(s => {
           const isPast = current > s.num
           const isCurrent = current === s.num
           return (
-            <div key={s.num} className="flex flex-col items-center gap-1.5">
+            <div key={s.num} className="flex flex-col items-center gap-2">
               <div className={cn(
-                'w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 border-2',
+                'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border-2',
                 isPast ? 'bg-accent border-accent text-white' :
-                isCurrent ? 'bg-bg-elevated border-accent text-accent' :
+                isCurrent ? 'bg-bg-elevated border-accent text-accent shadow-glow-accent' :
                 'bg-bg-surface border-border-default text-text-disabled'
               )}>
                 {isPast ? <Check className="w-4 h-4 stroke-[3px]" /> : <s.icon className="w-4 h-4" />}
               </div>
               <span className={cn(
-                'text-[10px] font-semibold uppercase tracking-widest',
+                'text-[10px] font-bold uppercase tracking-widest',
                 isCurrent ? 'text-text-primary' : 'text-text-disabled'
               )}>
                 {s.label}
@@ -77,6 +76,7 @@ export function EvilTwin() {
   const [encryption, setEncryption] = React.useState('open')
   const [karmaMode, setKarmaMode] = React.useState(false)
   const [dnsSpoof, setDnsSpoof] = React.useState(true)
+  const [mitmEnabled, setMitmEnabled] = React.useState(false)
   const [deauthMode, setDeauthMode] = React.useState('never') // never, launch, continuous
   const [deauthInterval, setDeauthInterval] = React.useState(15) // seconds
   const [customFile, setCustomFile] = React.useState<File | null>(null)
@@ -86,6 +86,11 @@ export function EvilTwin() {
   const activeTwinJob = activeJobs.find(j => j.type === 'eviltwin')
   const hasMonAdapter = adapters.some(a => a.mode === 'monitor')
   const hasApAdapter = adapters.some(a => a.mode === 'managed' && a.status !== 'down')
+
+  // Format MAC Address
+  const formatMac = (val: string) => {
+    return val.replace(/[^0-9a-fA-F]/g, '').slice(0, 12).replace(/(.{2})(?=.)/g, '$1:').toUpperCase()
+  }
 
   // Uptime ticker
   const [uptimeSeconds, setUptimeSeconds] = React.useState(0)
@@ -98,13 +103,13 @@ export function EvilTwin() {
   }, [activeTwinJob])
 
   React.useEffect(() => {
-    if (targetBssid) {
+    if (targetBssid && targetBssid.length === 17) {
       const net = networks.get(targetBssid)
       if (net) {
         if (!spoofSsid) setSpoofSsid(net.ssid)
         setChannel(net.channel || 6)
-        if (net.encryption.toLowerCase().includes('wpa2')) setEncryption('wpa2')
-        else if (net.encryption.toLowerCase().includes('wpa3')) setEncryption('wpa3')
+        if ((net.encryption || '').toLowerCase().includes('wpa2')) setEncryption('wpa2')
+        else if ((net.encryption || '').toLowerCase().includes('wpa3')) setEncryption('wpa3')
         else setEncryption('open')
       }
     }
@@ -117,7 +122,7 @@ export function EvilTwin() {
     const s = uptimeSeconds % 60
 
     return (
-      <div className="flex flex-col h-full animate-fade-in gap-4">
+      <div className="flex flex-col h-full animate-fade-in gap-4 font-sans">
         {/* Header bar */}
         <div className="flex items-center justify-between flex-shrink-0">
           <div>
@@ -164,12 +169,12 @@ export function EvilTwin() {
               <div className="text-xl font-bold font-mono text-text-primary tabular-nums leading-none">Broadcasting</div>
             </div>
           </div>
-          <div className={cn("bg-bg-elevated border rounded-lg px-4 py-3 flex items-center justify-between", sessionCreds.length > 0 ? "border-status-success/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]" : "border-border-subtle")}>
+          <div className={cn("bg-bg-elevated border rounded-lg px-4 py-3 flex items-center justify-between transition-colors duration-500", sessionCreds.length > 0 ? "border-accent/50 shadow-[0_0_15px_rgba(233,84,32,0.1)]" : "border-border-subtle")}>
             <div>
               <div className="text-[10px] text-text-disabled uppercase tracking-widest mb-1.5">Credentials Harvested</div>
-              <div className={cn("text-xl font-bold font-mono tabular-nums leading-none", sessionCreds.length > 0 ? "text-status-success" : "text-text-primary")}>{sessionCreds.length}</div>
+              <div className={cn("text-xl font-bold font-mono tabular-nums leading-none", sessionCreds.length > 0 ? "text-accent" : "text-text-primary")}>{sessionCreds.length}</div>
             </div>
-            {sessionCreds.length > 0 && <Check className="w-6 h-6 text-status-success" />}
+            {sessionCreds.length > 0 && <Check className="w-6 h-6 text-accent" />}
           </div>
         </div>
 
@@ -187,14 +192,14 @@ export function EvilTwin() {
               sessionCreds.map(cred => (
                 <div
                   key={cred.id}
-                  className="bg-bg-surface border border-status-success/20 rounded-lg p-3 flex justify-between items-center animate-fade-in"
+                  className="bg-bg-surface border border-accent/20 rounded-lg p-3 flex justify-between items-center animate-fade-in"
                 >
                   <div>
                     <div className="font-mono text-sm text-text-primary">{cred.username} / {cred.plainText || '••••••••'}</div>
                     <div className="text-xs text-text-disabled mt-0.5">Client: {cred.clientMac}</div>
                   </div>
-                  <div className="flex items-center gap-1 text-status-success text-xs font-semibold">
-                    <Check className="w-3.5 h-3.5" />Valid
+                  <div className="flex items-center gap-1 text-accent text-xs font-bold">
+                    <Check className="w-3.5 h-3.5" />Captured
                   </div>
                 </div>
               ))
@@ -207,32 +212,37 @@ export function EvilTwin() {
 
   // ── WIZARD STATE ──────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full animate-fade-in">
+    <div className="flex flex-col h-full animate-fade-in font-sans">
       {/* Wizard card fills full height */}
-      <div className="flex-1 flex flex-col bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden min-h-0 relative">
 
         {/* Step indicator */}
         <StepIndicator current={step} />
 
         {/* Step content — scrollable */}
-        <div className="flex-1 overflow-y-auto p-8 min-h-0">
+        <div className="flex-1 overflow-y-auto p-8 min-h-0 flex flex-col items-center">
 
           {/* STEP 1: Target */}
           {step === 1 && (
-            <div className="max-w-md animate-fade-in mx-auto">
-              <h3 className="text-lg font-bold text-text-primary mb-1">Select Target</h3>
-              <p className="text-sm text-text-disabled mb-6">Specify the network you want to clone.</p>
-              <div className="space-y-5">
+            <div className="w-full max-w-xl animate-fade-in mt-4">
+              <div className="space-y-6">
                 {/* Network picker from discovered networks */}
                 {networks.size > 0 && (
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold text-text-secondary uppercase tracking-widest">Discovered Network</Label>
-                    <Select value={targetBssid || '_manual'} onValueChange={val => setTargetBssid(val === '_manual' ? '' : val)}>
-                      <SelectTrigger className="w-full bg-bg-surface border border-border-subtle rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent">
-                        <SelectValue placeholder="— pick a network or enter manually —" />
+                    <Label className="text-[10px] font-bold text-text-disabled uppercase tracking-widest">Discovered Networks</Label>
+                    <Select value={targetBssid || '_manual'} onValueChange={val => {
+                        if (val === '_manual') {
+                            setTargetBssid('')
+                            setSpoofSsid('')
+                        } else {
+                            setTargetBssid(val)
+                        }
+                    }}>
+                      <SelectTrigger className="w-full bg-bg-surface border border-border-subtle rounded-md px-4 py-3 text-sm text-text-primary outline-none focus:border-accent shadow-sm">
+                        <SelectValue placeholder="— Pick a network or enter manually —" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="_manual">— pick a network or enter manually —</SelectItem>
+                        <SelectItem value="_manual">— Enter Manually —</SelectItem>
                         {Array.from(networks.values()).map(n => (
                           <SelectItem key={n.bssid} value={n.bssid}>
                             {n.ssid || '(hidden)'} [{n.bssid}] Ch{n.channel} {n.encryption}
@@ -243,28 +253,27 @@ export function EvilTwin() {
                   </div>
                 )}
                 
-                <div className="flex gap-4">
-                  <div className="space-y-2 flex-1">
-                    <Label className="text-xs font-bold text-text-secondary uppercase tracking-widest">Target BSSID</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="00:11:22:33:44:55"
-                        value={targetBssid}
-                        onChange={e => setTargetBssid(e.target.value)}
-                        className="font-mono bg-bg-surface border-border-subtle flex-1"
-                      />
-                    </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-[10px] font-bold text-text-disabled uppercase tracking-widest">Target BSSID</Label>
+                    <Input
+                      placeholder="00:11:22:33:44:55"
+                      value={targetBssid}
+                      onChange={e => setTargetBssid(formatMac(e.target.value))}
+                      className="font-mono text-sm bg-bg-surface border-border-subtle px-4 py-3 h-auto"
+                      maxLength={17}
+                    />
                   </div>
-                  <div className="space-y-2 flex-1">
-                    <Label className="text-xs font-bold text-text-secondary uppercase tracking-widest">Channel</Label>
+                  <div className="space-y-2 col-span-1">
+                    <Label className="text-[10px] font-bold text-text-disabled uppercase tracking-widest">Channel</Label>
                     <Select value={channel.toString()} onValueChange={val => setChannel(Number(val))}>
-                      <SelectTrigger className="w-full bg-bg-surface border border-border-subtle rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent">
+                      <SelectTrigger className="w-full bg-bg-surface border border-border-subtle rounded-md px-4 py-3 h-auto text-sm text-text-primary outline-none focus:border-accent">
                         <SelectValue placeholder="Ch..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-[250px]">
                         {[1,2,3,4,5,6,7,8,9,10,11,12,13,36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140,144,149,153,157,161,165].map(ch => (
                           <SelectItem key={ch} value={ch.toString()}>
-                            Channel {ch} {ch > 14 ? '(5G)' : '(2.4G)'}
+                            Ch {ch} {ch > 14 ? '(5G)' : '(2.4G)'}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -273,12 +282,12 @@ export function EvilTwin() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-xs font-bold text-text-secondary uppercase tracking-widest">Spoofed SSID (Broadcast Name)</Label>
+                  <Label className="text-[10px] font-bold text-text-disabled uppercase tracking-widest">Spoofed SSID (Broadcast Name)</Label>
                   <Input
                     placeholder="FreeWiFi"
                     value={spoofSsid}
                     onChange={e => setSpoofSsid(e.target.value)}
-                    className="bg-bg-surface border-border-subtle"
+                    className="bg-bg-surface border-border-subtle px-4 py-3 h-auto text-sm"
                   />
                 </div>
               </div>
@@ -287,37 +296,33 @@ export function EvilTwin() {
 
           {/* STEP 2: Configuration */}
           {step === 2 && (
-            <div className="animate-fade-in max-w-4xl mx-auto">
-              <h3 className="text-lg font-bold text-text-primary mb-1">Configuration</h3>
-              <p className="text-sm text-text-disabled mb-8">Setup the portal template and advanced attack parameters.</p>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                
+            <div className="w-full max-w-4xl animate-fade-in mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Left Col: Template Selection */}
-                <div>
-                  <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest border-b border-border-subtle pb-2 mb-4 flex items-center gap-2">
-                    <FileCode2 className="w-4 h-4" /> Captive Portal Template
+                <div className="flex flex-col gap-4">
+                  <h4 className="text-[10px] font-bold text-text-disabled uppercase tracking-widest border-b border-border-subtle pb-2 flex items-center gap-2">
+                    <FileCode2 className="w-3.5 h-3.5" /> Captive Portal Template
                   </h4>
-                  <div className="grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-1 gap-2">
                     {TEMPLATES.map(t => (
                       <button
                         key={t.id}
                         onClick={() => setSelectedTemplate(t.id)}
                         className={cn(
-                          'p-3 rounded-lg border flex items-start gap-3 cursor-pointer transition-all text-left w-full',
+                          'p-3 rounded-lg border flex items-center gap-4 cursor-pointer transition-all text-left w-full',
                           selectedTemplate === t.id
-                            ? 'bg-accent/10 border-accent shadow-[0_0_10px_rgba(var(--color-accent),0.1)]'
-                            : 'bg-bg-surface border-border-subtle hover:bg-bg-hover'
+                            ? 'bg-bg-active border-border-default shadow-sm'
+                            : 'bg-bg-surface border-transparent hover:border-border-subtle'
                         )}
                       >
                         <div className={cn(
-                          'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
-                          selectedTemplate === t.id ? 'bg-accent text-white' : 'bg-bg-active text-text-disabled'
+                          'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                          selectedTemplate === t.id ? 'bg-bg-elevated text-accent border border-accent/30' : 'bg-bg-active text-text-disabled border border-transparent'
                         )}>
                           <t.icon className="w-4 h-4" />
                         </div>
                         <div>
-                          <div className={cn('text-sm font-bold', selectedTemplate === t.id ? 'text-accent-text' : 'text-text-primary')}>{t.name}</div>
+                          <div className={cn('text-sm font-bold', selectedTemplate === t.id ? 'text-accent' : 'text-text-primary')}>{t.name}</div>
                           <div className="text-xs text-text-disabled mt-0.5">{t.desc}</div>
                         </div>
                       </button>
@@ -325,7 +330,7 @@ export function EvilTwin() {
                   </div>
                   
                   {selectedTemplate === 'custom' && (
-                    <div className="mt-4 border-2 border-dashed border-border-strong rounded-lg p-6 text-center bg-bg-surface transition-colors hover:border-accent/50 group relative">
+                    <div className="mt-2 border-2 border-dashed border-border-default rounded-lg p-6 text-center bg-bg-surface transition-colors hover:border-accent/50 group relative">
                       <input 
                         type="file" 
                         accept=".zip,.html" 
@@ -338,31 +343,29 @@ export function EvilTwin() {
                         }}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       />
-                      <Upload className="w-8 h-8 mx-auto text-text-disabled group-hover:text-accent transition-colors mb-2" />
-                      <p className="text-sm text-text-primary font-medium mb-1">{customFile ? customFile.name : 'Drag and drop your template .zip'}</p>
-                      <p className="text-xs text-text-disabled">Must contain index.html and assets</p>
-                      <Button variant="outline" size="sm" className="mt-3 pointer-events-none">Browse Files</Button>
+                      <Upload className="w-6 h-6 mx-auto text-text-disabled group-hover:text-accent transition-colors mb-2" />
+                      <p className="text-sm text-text-primary font-bold mb-1">{customFile ? customFile.name : 'Upload Custom Template'}</p>
+                      <p className="text-[10px] text-text-disabled">Drag & drop a .zip file containing index.html</p>
                     </div>
                   )}
                 </div>
 
                 {/* Right Col: Attack Config */}
-                <div>
-                  <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest border-b border-border-subtle pb-2 mb-4 flex items-center gap-2">
-                    <Settings2 className="w-4 h-4" /> Advanced Attack Config
+                <div className="flex flex-col gap-4">
+                  <h4 className="text-[10px] font-bold text-text-disabled uppercase tracking-widest border-b border-border-subtle pb-2 flex items-center gap-2">
+                    <Settings2 className="w-3.5 h-3.5" /> Attack Behavior
                   </h4>
-                  <div className="space-y-6">
-                    
+                  
+                  <div className="bg-bg-surface border border-border-subtle rounded-lg p-5 space-y-6">
                     {/* Security */}
-                    <div className="space-y-3">
-                      <Label className="text-xs font-semibold text-text-primary">AP Security (Encryption)</Label>
-                      <p className="text-[10px] text-text-disabled -mt-1.5 leading-snug max-w-sm">Select the encryption of your fake AP. Open is recommended for captive portals.</p>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-text-primary">Encryption</Label>
                       <Select value={encryption} onValueChange={setEncryption}>
-                        <SelectTrigger className="w-full max-w-sm bg-bg-surface border border-border-subtle rounded-md px-3 py-2 text-sm text-text-primary outline-none">
+                        <SelectTrigger className="w-full bg-bg-active border border-border-default rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="open">Open (No Password)</SelectItem>
+                          <SelectItem value="open">Open (Recommended for Portals)</SelectItem>
                           <SelectItem value="wpa2">WPA2 PSK</SelectItem>
                           <SelectItem value="wpa3">WPA3 SAE</SelectItem>
                         </SelectContent>
@@ -370,33 +373,33 @@ export function EvilTwin() {
                     </div>
 
                     {/* Deauth Companion */}
-                    <div className="space-y-3 bg-status-warning/5 border border-status-warning/20 p-4 rounded-lg relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-3 opacity-10"><WifiOff className="w-16 h-16 text-status-warning" /></div>
-                      <Label className="text-xs font-bold text-status-warning">Deauth Companion</Label>
-                      <p className="text-[10px] text-text-secondary leading-snug max-w-[280px]">Knock clients off the real AP so they connect to your Evil Twin automatically.</p>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-text-primary flex items-center justify-between">
+                        Deauth Companion
+                      </Label>
                       <Select value={deauthMode} onValueChange={setDeauthMode}>
-                        <SelectTrigger className="w-full max-w-[280px] bg-bg-surface border border-status-warning/30 rounded-md px-3 py-2 text-sm text-text-primary outline-none">
+                        <SelectTrigger className="w-full bg-bg-active border border-border-default rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="never">Never (Disabled)</SelectItem>
+                          <SelectItem value="never">Never (Passive)</SelectItem>
                           <SelectItem value="launch">Once on Launch</SelectItem>
                           <SelectItem value="continuous">Continuous Attack</SelectItem>
                         </SelectContent>
                       </Select>
                       
                       {deauthMode === 'continuous' && (
-                        <div className="flex items-center gap-3 pt-1">
-                          <Label className="text-xs text-text-primary">Attack Interval:</Label>
+                        <div className="flex items-center gap-3 pt-2">
+                          <Label className="text-xs text-text-secondary whitespace-nowrap">Interval:</Label>
                           <Select value={deauthInterval.toString()} onValueChange={val => setDeauthInterval(Number(val))}>
-                            <SelectTrigger className="w-[120px] bg-bg-surface border border-border-subtle rounded-md px-2 h-8 text-xs text-text-primary outline-none">
+                            <SelectTrigger className="w-full bg-bg-active border border-border-default rounded-md px-2 h-8 text-xs text-text-primary outline-none">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="5">Every 5s</SelectItem>
-                              <SelectItem value="15">Every 15s</SelectItem>
-                              <SelectItem value="30">Every 30s</SelectItem>
-                              <SelectItem value="60">Every 60s</SelectItem>
+                              <SelectItem value="5">5 seconds</SelectItem>
+                              <SelectItem value="15">15 seconds</SelectItem>
+                              <SelectItem value="30">30 seconds</SelectItem>
+                              <SelectItem value="60">60 seconds</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -404,34 +407,37 @@ export function EvilTwin() {
                     </div>
 
                     {/* Toggles */}
-                    <div className="space-y-4 pt-2 border-t border-border-subtle">
-                      <div className="flex items-start justify-between gap-4 max-w-sm">
-                        <div>
-                          <Label className="text-sm font-semibold text-text-primary cursor-pointer" onClick={() => setKarmaMode(!karmaMode)}>Karma Mode</Label>
-                          <p className="text-[10px] text-text-disabled mt-0.5 leading-snug">Respond to ALL probe requests from nearby devices, capturing more wandering clients.</p>
-                        </div>
+                    <div className="space-y-4 pt-4 border-t border-border-subtle">
+                      <div className="flex items-center justify-between gap-4">
+                        <Label className="text-xs font-bold text-text-primary cursor-pointer" onClick={() => setKarmaMode(!karmaMode)}>Karma Mode</Label>
                         <Button
                           variant="outline" size="sm" onClick={() => setKarmaMode(!karmaMode)}
-                          className={cn("h-7 px-3 text-xs font-bold rounded-full transition-all", karmaMode ? "bg-accent border-accent text-white" : "bg-bg-surface border-border-subtle text-text-secondary")}
+                          className={cn("h-6 px-3 text-[10px] font-bold rounded-full transition-colors border-0", karmaMode ? "bg-accent/20 text-accent" : "bg-bg-active text-text-disabled")}
                         >
                           {karmaMode ? 'ON' : 'OFF'}
                         </Button>
                       </div>
 
-                      <div className="flex items-start justify-between gap-4 max-w-sm">
-                        <div>
-                          <Label className="text-sm font-semibold text-text-primary cursor-pointer" onClick={() => setDnsSpoof(!dnsSpoof)}>DNS Spoofing</Label>
-                          <p className="text-[10px] text-text-disabled mt-0.5 leading-snug">Redirect all DNS domains to your captive portal IP.</p>
-                        </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <Label className="text-xs font-bold text-text-primary cursor-pointer" onClick={() => setDnsSpoof(!dnsSpoof)}>DNS Spoofing</Label>
                         <Button
                           variant="outline" size="sm" onClick={() => setDnsSpoof(!dnsSpoof)}
-                          className={cn("h-7 px-3 text-xs font-bold rounded-full transition-all", dnsSpoof ? "bg-accent border-accent text-white" : "bg-bg-surface border-border-subtle text-text-secondary")}
+                          className={cn("h-6 px-3 text-[10px] font-bold rounded-full transition-colors border-0", dnsSpoof ? "bg-accent/20 text-accent" : "bg-bg-active text-text-disabled")}
                         >
                           {dnsSpoof ? 'ON' : 'OFF'}
                         </Button>
                       </div>
-                    </div>
 
+                      <div className="flex items-center justify-between gap-4">
+                        <Label className="text-xs font-bold text-text-primary cursor-pointer" onClick={() => setMitmEnabled(!mitmEnabled)}>MITM Sniffer</Label>
+                        <Button
+                          variant="outline" size="sm" onClick={() => setMitmEnabled(!mitmEnabled)}
+                          className={cn("h-6 px-3 text-[10px] font-bold rounded-full transition-colors border-0", mitmEnabled ? "bg-accent/20 text-accent" : "bg-bg-active text-text-disabled")}
+                        >
+                          {mitmEnabled ? 'ON' : 'OFF'}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -440,75 +446,72 @@ export function EvilTwin() {
 
           {/* STEP 3: Launch Summary */}
           {step === 3 && (
-            <div className="flex flex-col items-center animate-fade-in max-w-2xl mx-auto pt-4">
-              <Wifi className="w-16 h-16 text-status-warning mb-4" />
-              <h3 className="text-xl font-bold text-text-primary mb-2">Ready to Launch Attack</h3>
-              <p className="text-sm text-text-disabled text-center mb-8 max-w-lg">
-                You are about to deploy an Evil Twin access point. Verify the operational parameters below before proceeding.
-              </p>
-              
-              <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-6">
-                
-                {/* AP Config Panel */}
-                <div className="bg-bg-surface border border-border-subtle rounded-lg p-5 space-y-3 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-3 opacity-[0.03]"><NetworkIcon className="w-24 h-24" /></div>
-                  <h4 className="text-[10px] font-bold text-text-secondary uppercase tracking-widest mb-4 border-b border-border-subtle pb-2">AP Configuration</h4>
-                  {[
-                    { label: 'Target BSSID', value: targetBssid, mono: true },
-                    { label: 'Spoofed SSID', value: spoofSsid, mono: false },
-                    { label: 'Channel', value: `${channel} (${channel > 14 ? '5 GHz' : '2.4 GHz'})`, mono: false },
-                    { label: 'Encryption', value: encryption.toUpperCase(), mono: false },
-                    { label: 'Template', value: TEMPLATES.find(t => t.id === selectedTemplate)?.name ?? '', mono: false },
-                  ].map(item => (
-                    <div key={item.label} className="flex justify-between items-center relative z-10">
-                      <span className="text-text-disabled text-xs">{item.label}</span>
-                      <span className={cn('text-text-primary font-medium', item.mono && 'font-mono text-xs')}>{item.value}</span>
+            <div className="w-full max-w-2xl animate-fade-in mt-4 text-center">
+              <div className="bg-bg-surface border border-border-subtle rounded-lg overflow-hidden text-left shadow-lg">
+                <div className="grid grid-cols-2 divide-x divide-border-subtle">
+                  <div className="p-6 space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-[10px] text-text-disabled uppercase">Spoofed SSID</div>
+                        <div className="text-sm font-bold text-text-primary truncate">{spoofSsid || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-disabled uppercase">Target BSSID</div>
+                        <div className="text-sm font-mono text-text-secondary">{targetBssid || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-disabled uppercase">Channel</div>
+                        <div className="text-sm font-medium text-text-primary">{channel}</div>
+                      </div>
                     </div>
-                  ))}
-                </div>
-
-                {/* DHCP/DNS & Attack Panel */}
-                <div className="bg-bg-surface border border-border-subtle rounded-lg p-5 space-y-3 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-3 opacity-[0.03]"><Server className="w-24 h-24" /></div>
-                  <h4 className="text-[10px] font-bold text-text-secondary uppercase tracking-widest mb-4 border-b border-border-subtle pb-2">Network Services</h4>
-                  {[
-                    { label: 'DHCP Range', value: '10.0.0.10 - 100', mono: true },
-                    { label: 'Gateway & DNS', value: '10.0.0.1', mono: true },
-                    { label: 'DNS Spoofing', value: dnsSpoof ? 'Enabled' : 'Disabled', mono: false },
-                    { label: 'Karma Mode', value: karmaMode ? 'Enabled' : 'Disabled', mono: false },
-                    { label: 'Deauth Mode', value: deauthMode === 'never' ? 'Disabled' : deauthMode === 'continuous' ? `Continuous (${deauthInterval}s)` : 'Once on Launch', mono: false },
-                  ].map(item => (
-                    <div key={item.label} className="flex justify-between items-center relative z-10">
-                      <span className="text-text-disabled text-xs">{item.label}</span>
-                      <span className={cn(
-                        'font-medium text-xs', 
-                        item.mono ? 'font-mono text-text-secondary' : 
-                        (item.value.includes('Enabled') || item.value.includes('Continuous')) ? 'text-status-warning' : 'text-text-primary'
-                      )}>
-                        {item.value}
-                      </span>
+                  </div>
+                  
+                  <div className="p-6 space-y-4 bg-bg-elevated">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-[10px] text-text-disabled uppercase">Portal Template</div>
+                        <div className="text-sm font-medium text-text-primary">{TEMPLATES.find(t => t.id === selectedTemplate)?.name ?? 'Custom'}</div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="text-[10px] text-text-disabled uppercase">Karma</div>
+                          <div className={cn("text-sm font-bold", karmaMode ? "text-accent" : "text-text-disabled")}>{karmaMode ? 'Enabled' : 'Disabled'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-text-disabled uppercase">DNS Spoof</div>
+                          <div className={cn("text-sm font-bold", dnsSpoof ? "text-accent" : "text-text-disabled")}>{dnsSpoof ? 'Enabled' : 'Disabled'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-text-disabled uppercase">MITM</div>
+                          <div className={cn("text-sm font-bold", mitmEnabled ? "text-accent" : "text-text-disabled")}>{mitmEnabled ? 'Enabled' : 'Disabled'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-text-disabled uppercase">Encryption</div>
+                          <div className="text-sm font-medium text-text-primary">{encryption.toUpperCase()}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-disabled uppercase">Deauth Mode</div>
+                        <div className={cn("text-sm font-medium", deauthMode !== 'never' ? "text-accent" : "text-text-disabled")}>{deauthMode === 'never' ? 'Passive' : deauthMode === 'continuous' ? `Continuous (${deauthInterval}s)` : 'Once on Launch'}</div>
+                      </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-
               </div>
 
-              <div className="p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg flex items-start gap-3 text-status-warning w-full">
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <p className="text-xs leading-relaxed">
-                  <strong>Warning:</strong> Launching this attack will switch your adapter into AP mode. All internet connectivity on this adapter will drop, and local DHCP/DNS tables will be overwritten.
-                </p>
+              <div className="mt-6 text-xs text-text-secondary">
+                Launching this attack will monopolize the selected wireless interface in AP mode.
               </div>
             </div>
           )}
         </div>
 
         {/* Footer navigation — pinned to bottom of card */}
-        <div className="flex items-center justify-between px-8 py-4 border-t border-border-subtle bg-bg-surface flex-shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.1)] z-10">
+        <div className="flex items-center justify-between px-8 py-4 border-t border-border-subtle bg-bg-surface flex-shrink-0 z-10">
           <Button
-            variant="outline"
+            variant="ghost"
             onClick={() => step === 1 ? navigate(-1) : setStep(s => s - 1)}
-            className="bg-bg-active border-border-subtle text-text-primary"
+            className="text-text-secondary hover:text-text-primary"
           >
             {step === 1 ? 'Cancel' : 'Back'}
           </Button>
@@ -516,13 +519,13 @@ export function EvilTwin() {
             <Button
               onClick={() => setStep(s => s + 1)}
               disabled={step === 1 && (!targetBssid || !spoofSsid)}
-              className="bg-accent text-white hover:bg-accent-hover font-bold px-6 shadow-glow"
+              className="bg-bg-active border border-border-subtle text-text-primary hover:bg-bg-hover hover:border-border-default font-bold px-8 shadow-sm transition-colors"
             >
-              Next Step
+              Next
             </Button>
           ) : (
             <Button
-              className="bg-status-error text-white hover:bg-status-error/90 font-bold px-6 shadow-glow-error"
+              className="bg-accent text-white hover:bg-accent-hover font-bold px-8 shadow-glow-accent transition-colors"
               onClick={() => setConfirmOpen(true)}
             >
               Deploy Evil Twin
@@ -549,7 +552,7 @@ export function EvilTwin() {
           
           const apIface = adapters.find(a => a.mode === 'managed' || a.mode === 'ap')?.iface || adapters[0]?.iface || 'wlan_ap'
           
-          // Sending advanced payload to backend (backend V2 will process these new flags)
+          // Sending advanced payload to backend
           startJob('eviltwin', { 
             ssid: spoofSsid, 
             channel, 
@@ -559,6 +562,7 @@ export function EvilTwin() {
             encryption,
             karma_mode: karmaMode,
             dns_spoofing: dnsSpoof,
+            mitm_enabled: mitmEnabled,
             deauth_companion: deauthMode,
             deauth_interval: deauthInterval
           })

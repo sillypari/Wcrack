@@ -64,6 +64,10 @@ export type Job = {
   connected?: number
   dhcpLeases?: number
   dhcp_leases?: number
+  eapolM1?: boolean
+  eapolM2?: boolean
+  eapolM3?: boolean
+  eapolM4?: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: any
 }
@@ -266,7 +270,9 @@ export const useWcarckStore = create<WcarckStore>()(
               fetch('http://127.0.0.1:8000/api/jobs').then(r => r.ok ? r.json() : []),
             ])
             
-            const [adaptersList, networksList, clientsList, captures, credentials, activeJobs] = res
+            const [adaptersList, networksList, clientsList, captures, credentials, jobsList] = res
+            
+            const activeJobs = jobsList.filter((j: any) => j.status === 'running' || j.status === 'starting' || j.status === 'queued')
             
             const adapters = adaptersList.map((a: any) => ({
               iface: a.iface_name,
@@ -285,7 +291,20 @@ export const useWcarckStore = create<WcarckStore>()(
             }))
             
             const networks = new Map<string, Network>()
-            networksList.forEach((n: Network) => networks.set(n.bssid, n))
+            networksList.forEach((n: any) => networks.set(n.bssid, {
+              ...n,
+              encryption: n.encryption || n.privacy || '',
+              power: n.power ?? n.signal_dbm ?? 0,
+              channel: n.channel || 0,
+              ssid: n.ssid || '',
+              bssid: n.bssid || '',
+              cipher: n.cipher || '',
+              auth: n.auth || '',
+              beacons: n.beacons || 0,
+              wps: n.wps || false,
+              firstSeen: n.firstSeen || n.first_seen || Date.now(),
+              lastSeen: n.lastSeen || n.last_seen || Date.now(),
+            } as Network))
             
             const clients = new Map<string, Client>()
             clientsList.forEach((c: Client) => clients.set(c.mac, c))
@@ -509,19 +528,16 @@ export const useWcarckStore = create<WcarckStore>()(
               const jobId = String(evPayload?.job_id ?? event.job_id ?? '')
               const idx = jobs.findIndex(j => j.id === jobId)
               if (idx >= 0) {
+                const getValidNumber = (val: any, fallback: number) => (typeof val === 'number' && !Number.isNaN(val)) ? val : fallback;
                 jobs[idx] = {
                   ...jobs[idx],
-                  progress: evPayload?.progress_pct ?? evPayload?.progress ?? jobs[idx].progress,
+                  progress: getValidNumber(evPayload?.progress_pct, getValidNumber(evPayload?.progress, jobs[idx].progress)),
                   speed: evPayload?.speed_kps ?? evPayload?.speed ?? jobs[idx].speed,
                   eta: evPayload?.eta ?? jobs[idx].eta,
                   status_message: evPayload?.status_message ?? jobs[idx].status_message,
                   connected: evPayload?.connected ?? jobs[idx].connected,
                   dhcpLeases: evPayload?.dhcp_leases ?? evPayload?.dhcpLeases ?? jobs[idx].dhcpLeases,
                 }
-              }
-              newState.activeJobs = jobs
-              break
-            }
               }
               newState.activeJobs = jobs
               break
@@ -556,37 +572,44 @@ export const useWcarckStore = create<WcarckStore>()(
 
         syncHistory: (events) => set((state) => {
           const sorted = [...events].sort((a, b) => a.seq - b.seq)
+          const batchState = { ...state }
           
           for (const ev of sorted) {
             if (ev.seq > state.lastEventSeq) {
-              get().processEvent(ev)
+              const updates = get().processEvent(ev)
+              Object.assign(batchState, updates)
+              batchState.lastEventSeq = Math.max(batchState.lastEventSeq, ev.seq)
             }
           }
-          return {}
+          
+          return batchState
         }),
 
         startJob: async (moduleName, params) => {
           try {
             let backendModuleName = moduleName
             let handlerName = 'start'
-            if (moduleName === 'recon') {
+            if (moduleName === 'recon' || moduleName === 'recon.scanner') {
               backendModuleName = 'recon.scanner'
               handlerName = 'start_scan'
-            } else if (moduleName === 'deauth') {
+            } else if (moduleName === 'deauth' || moduleName === 'attack.deauth') {
               backendModuleName = 'attack.deauth'
               handlerName = 'start_deauth'
-            } else if (moduleName === 'pmkid') {
+            } else if (moduleName === 'pmkid' || moduleName === 'attack.pmkid') {
               backendModuleName = 'attack.pmkid'
               handlerName = 'start_pmkid'
-            } else if (moduleName === 'eviltwin') {
+            } else if (moduleName === 'eviltwin' || moduleName === 'attack.eviltwin') {
               backendModuleName = 'attack.eviltwin'
               handlerName = 'start_eviltwin'
-            } else if (moduleName === 'crack') {
+            } else if (moduleName === 'crack' || moduleName === 'crack.aircrack') {
               backendModuleName = 'crack.aircrack'
               handlerName = 'start_crack'
-            } else if (moduleName === 'pmkid_crack') {
+            } else if (moduleName === 'pmkid_crack' || moduleName === 'attack.pmkid_crack') {
               backendModuleName = 'attack.pmkid_crack'
               handlerName = 'start_pmkid_crack'
+            } else if (moduleName === 'mitm' || moduleName === 'attack.mitm') {
+              backendModuleName = 'attack.mitm'
+              handlerName = 'start_mitm'
             }
 
             const res = await fetch('http://127.0.0.1:8000/api/jobs/start', {

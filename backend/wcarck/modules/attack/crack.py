@@ -22,6 +22,7 @@ class CrackModule(Module):
     
     def __init__(self):
         self._process: Optional[ManagedProcess] = None
+        self._monitor_task: Optional[asyncio.Task] = None
         self._job_id: Optional[str] = None
         self._running = False
 
@@ -131,26 +132,34 @@ class CrackModule(Module):
             ]
 
         import uuid
-        numeric_job_id = int(job_id) if str(job_id).isdigit() else abs(hash(uuid.uuid4().hex)) % (2**31)
+        numeric_job_id = int(job_id) if str(job_id).isdigit() else uuid.uuid4().int % (2**31)
         
-        async with SessionLocal() as session:
-            stmt = select(CrackJob).where(CrackJob.id == numeric_job_id)
-            cj_res = await session.execute(stmt)
-            cj = cj_res.scalar_one_or_none()
-            if not cj:
-                cj = CrackJob(
-                    id=numeric_job_id,
-                    name=f"Crack {ssid or bssid or 'WPA'}",
-                    source_capture_id=capture.id,
-                    wordlist_path=wl_paths[0],
-                    hash_mode=22000,
-                    attack_mode=0,
-                    backend="aircrack",
-                    status="Running",
-                    started_at=datetime.now(timezone.utc).replace(tzinfo=None)
-                )
-                session.add(cj)
-                await session.commit()
+        retries = 3
+        for attempt in range(retries):
+            try:
+                async with SessionLocal() as session:
+                    stmt = select(CrackJob).where(CrackJob.id == numeric_job_id)
+                    cj_res = await session.execute(stmt)
+                    cj = cj_res.scalar_one_or_none()
+                    if not cj:
+                        cj = CrackJob(
+                            id=numeric_job_id,
+                            name=f"Crack {ssid or bssid or 'WPA'}",
+                            source_capture_id=capture.id,
+                            wordlist_path=wl_paths[0],
+                            hash_mode=22000,
+                            attack_mode=0,
+                            backend="aircrack",
+                            status="Running",
+                            started_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                        )
+                        session.add(cj)
+                        await session.commit()
+                break
+            except Exception as e:
+                logger.error(f"Failed to create CrackJob (attempt {attempt+1}): {e}")
+                if attempt < retries - 1:
+                    await asyncio.sleep(0.5)
 
         self._running = True
         self._process = ManagedProcess(cmd=cmd, job_id=job_id, log_path=log_path)
@@ -168,7 +177,7 @@ class CrackModule(Module):
         
         bus.publish("module.started", {"job_id": job_id, "module": self.name})
         
-        asyncio.create_task(self._monitor_process(job_id, bssid, ssid, cap_path, key_file))
+        self._monitor_task = asyncio.create_task(self._monitor_process(job_id, bssid, ssid, cap_path, key_file))
 
     async def _monitor_process(self, job_id: str, bssid: Optional[str], ssid: Optional[str], cap_path: str, key_file: str):
         if not self._process or not self._process._process:
@@ -177,97 +186,119 @@ class CrackModule(Module):
         proc = self._process._process
         found_key = None
         
-        progress_re = re.compile(r'(\d+)/(\d+)\s+keys\s+tested.*\(([\d.]+)\s+k/s')
-        
-        while self._running:
-            line_bytes = await proc.stdout.readline()
-            if not line_bytes:
-                break
-            line = line_bytes.decode("utf-8", errors="ignore").strip()
+        rc = -1
+        try:
+            progress_re = re.compile(r'(\d+)/(\d+)\s+keys\s+tested.*\(([\d.]+)\s+k/s')
             
-            if "KEY FOUND!" in line:
-                m = re.search(r'KEY FOUND!\s+\[\s*([^\]\s]+)\s*\]', line)
+            while self._running:
+                try:
+                    line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    continue
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="ignore").strip()
+                
+                if "KEY FOUND!" in line:
+                    m = re.search(r'KEY FOUND!\s+\[\s*([^\]\s]+)\s*\]', line)
+                    if m:
+                        found_key = m.group(1)
+                        logger.info(f"CRACK SUCCESS: Found key={found_key} for BSSID={bssid}")
+                
+                m = progress_re.search(line)
                 if m:
-                    found_key = m.group(1)
-                    logger.info(f"CRACK SUCCESS: Found key={found_key} for BSSID={bssid}")
-            
-            m = progress_re.search(line)
-            if m:
-                tried, total, speed = int(m.group(1)), int(m.group(2)), float(m.group(3))
-                pct = (tried / total * 100) if total > 0 else 0
-                bus.publish("job.progress", {
-                    "job_id": job_id,
-                    "module": self.name,
-                    "progress_pct": round(pct, 1),
-                    "keys_tested": tried,
-                    "keys_total": total,
-                    "speed_kps": speed,
-                    "status_message": f"{tried}/{total} keys ({pct:.1f}%) @ {speed:.0f} k/s"
-                })
-            elif "keys tested" in line.lower() or "speed" in line.lower():
-                bus.publish("job.progress", {
-                    "job_id": job_id,
-                    "status_message": line[:120],
-                    "module": self.name
-                })
+                    tried, total, speed = int(m.group(1)), int(m.group(2)), float(m.group(3))
+                    pct = (tried / total * 100) if total > 0 else 0
+                    bus.publish("job.progress", {
+                        "job_id": job_id,
+                        "module": self.name,
+                        "progress_pct": round(pct, 1),
+                        "keys_tested": tried,
+                        "keys_total": total,
+                        "speed_kps": speed,
+                        "status_message": f"{tried}/{total} keys ({pct:.1f}%) @ {speed:.0f} k/s"
+                    })
+                elif "keys tested" in line.lower() or "speed" in line.lower():
+                    bus.publish("job.progress", {
+                        "job_id": job_id,
+                        "status_message": line[:120],
+                        "module": self.name
+                    })
 
-        rc = await proc.wait()
+            rc = await proc.wait()
 
-        if not found_key and os.name == 'posix' and os.path.exists(key_file):
-            try:
-                with open(key_file, 'r') as f:
-                    content = f.read().strip()
-                    if content:
-                        found_key = content
-                        logger.info(f"CRACK SUCCESS (from key file): key={found_key} for BSSID={bssid}")
-            except Exception:
-                pass
-
-        async with SessionLocal() as session:
-            status = "Cracked" if found_key else "Failed"
-            
-            cred_id = None
-            if found_key:
-                cred = Credential(
-                    network_ssid=ssid or "Unknown Network",
-                    bssid=bssid or "",
-                    password=found_key,
-                    client_mac="FF:FF:FF:FF:FF:FF",
-                    validated=True,
-                    captured_at=datetime.now(timezone.utc).replace(tzinfo=None)
-                )
-                session.add(cred)
-                await session.flush()
-                cred_id = cred.id
-                
-                bus.publish("credential.captured", {
-                    "id": cred_id,
-                    "ssid": ssid or "Unknown Network",
-                    "bssid": bssid or "",
-                    "password": found_key,
-                    "source": "aircrack-ng"
-                })
-                
-            import uuid
-            numeric_job_id = int(job_id) if str(job_id).isdigit() else abs(hash(uuid.uuid4().hex)) % (2**31)
-            await session.execute(
-                update(CrackJob)
-                .where(CrackJob.id == numeric_job_id)
-                .values(
-                    status=status,
-                    ended_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                    cracked_plaintext=found_key,
-                    cracked_password_id=cred_id,
-                    exit_code=rc
-                )
-            )
-            await session.commit()
-            
-        bus.publish("module.stopped", {"job_id": job_id, "module": self.name})
-        self._process = None
+            if not found_key and os.name == 'posix' and os.path.exists(key_file):
+                try:
+                    with open(key_file, 'r') as f:
+                        content = f.read().strip()
+                        if content:
+                            found_key = content
+                            logger.info(f"CRACK SUCCESS (from key file): key={found_key} for BSSID={bssid}")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Error in crack monitor: {e}")
+        finally:
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    async with SessionLocal() as session:
+                        status = "Cracked" if found_key else "Failed"
+                        
+                        cred_id = None
+                        if found_key:
+                            cred = Credential(
+                                network_ssid=ssid or "Unknown Network",
+                                bssid=bssid or "",
+                                password=found_key,
+                                client_mac="FF:FF:FF:FF:FF:FF",
+                                validated=True,
+                                captured_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                            )
+                            session.add(cred)
+                            await session.flush()
+                            cred_id = cred.id
+                            
+                            bus.publish("credential.captured", {
+                                "id": cred_id,
+                                "ssid": ssid or "Unknown Network",
+                                "bssid": bssid or "",
+                                "password": found_key,
+                                "source": "aircrack-ng"
+                            })
+                            
+                        import uuid
+                        numeric_job_id = int(job_id) if str(job_id).isdigit() else uuid.uuid4().int % (2**31)
+                        await session.execute(
+                            update(CrackJob)
+                            .where(CrackJob.id == numeric_job_id)
+                            .values(
+                                status=status,
+                                ended_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                                cracked_plaintext=found_key,
+                                cracked_password_id=cred_id,
+                                exit_code=rc
+                            )
+                        )
+                        await session.commit()
+                    break
+                except Exception as e:
+                    logger.error(f"Failed to save Crack result DB (attempt {attempt+1}): {e}")
+                    if attempt < retries - 1:
+                        await asyncio.sleep(0.5)
+                        
+            bus.publish("module.stopped", {"job_id": job_id, "module": self.name})
+            self._process = None
 
     async def stop(self, job_id: str) -> None:
         self._running = False
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._monitor_task = None
         if self._process:
             await self._process.stop()
             self._process = None

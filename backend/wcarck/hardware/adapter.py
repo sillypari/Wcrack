@@ -155,17 +155,21 @@ class AdapterWatchdog:
         # Read driver from sysfs (fast, no subprocess)
         driver = await self._read_driver_sysfs(iface)
 
+        # Read RX/TX stats
+        rx, tx = await self._read_stats_sysfs(iface)
+
         # Get chipset from airmon-ng cache (slow, TTL 30s)
         chipset = await self._get_chipset(iface)
 
         # Update in-memory state
         self._adapters[iface] = {
             "mac": mac, "mode": mode, "channel": channel,
-            "driver": driver, "chipset": chipset
+            "driver": driver, "chipset": chipset,
+            "rx": rx, "tx": tx
         }
 
         # Persist to DB
-        await self._upsert_adapter_db(iface, mac, mode, driver, chipset, channel)
+        await self._upsert_adapter_db(iface, mac, mode, driver, chipset, channel, rx, tx)
 
         # Emit events
         if prev_mode and prev_mode != mode:
@@ -205,6 +209,22 @@ class AdapterWatchdog:
         except Exception:
             pass
         return None
+
+    async def _read_stats_sysfs(self, iface: str) -> tuple[int, int]:
+        """Read RX and TX packets from sysfs."""
+        rx, tx = 0, 0
+        try:
+            rx_path = f"/sys/class/net/{iface}/statistics/rx_packets"
+            tx_path = f"/sys/class/net/{iface}/statistics/tx_packets"
+            if os.path.exists(rx_path):
+                with open(rx_path) as f:
+                    rx = int(f.read().strip() or 0)
+            if os.path.exists(tx_path):
+                with open(tx_path) as f:
+                    tx = int(f.read().strip() or 0)
+        except Exception:
+            pass
+        return rx, tx
 
     async def _get_chipset(self, iface: str) -> Optional[str]:
         """Get chipset from airmon-ng cache. Refresh if stale."""
@@ -256,7 +276,8 @@ class AdapterWatchdog:
 
     async def _upsert_adapter_db(
         self, iface: str, mac: str, mode: str,
-        driver: Optional[str], chipset: Optional[str], channel: int
+        driver: Optional[str], chipset: Optional[str], channel: int,
+        rx: int, tx: int
     ):
         """Upsert Adapter row keyed by MAC address."""
         try:
@@ -269,6 +290,9 @@ class AdapterWatchdog:
                     chipset=chipset,
                     driver=driver,
                     current_mode=mode,
+                    channel=channel,
+                    rx=rx,
+                    tx=tx,
                     last_seen=datetime.now(timezone.utc).replace(tzinfo=None)
                 )
                 stmt = stmt.on_conflict_do_update(
@@ -278,6 +302,9 @@ class AdapterWatchdog:
                         "current_mode": stmt.excluded.current_mode,
                         "driver": stmt.excluded.driver,
                         "chipset": stmt.excluded.chipset,
+                        "channel": stmt.excluded.channel,
+                        "rx": stmt.excluded.rx,
+                        "tx": stmt.excluded.tx,
                         "last_seen": stmt.excluded.last_seen,
                     }
                 )
@@ -316,6 +343,44 @@ class AdapterWatchdog:
     # ------------------------------------------------------------------ #
     # Monitor mode control (called from API)
     # ------------------------------------------------------------------ #
+    
+    async def check_kill(self) -> dict:
+        """
+        Run airmon-ng check kill to stop NM/wpa_supplicant.
+        Returns {success, message, output}
+        """
+        if os.name != 'posix':
+            return {"success": False, "message": "Only available on Linux", "output": ""}
+            
+        output = await self._run_cmd(["sudo", "-n", "airmon-ng", "check", "kill"])
+        if output is None:
+            return {"success": False, "message": "Failed to run airmon-ng check kill", "output": ""}
+            
+        bus.publish("adapter.airmon_check_kill", {
+            "message": "airmon-ng check kill: stopped conflicting processes",
+            "payload": {"output": output}
+        })
+        return {"success": True, "message": "Stopped conflicting processes", "output": output}
+
+    async def restore_network_services(self) -> dict:
+        """
+        Restart wpa_supplicant and NetworkManager to restore internet connectivity.
+        Returns {success, message, output}
+        """
+        if os.name != 'posix':
+            return {"success": False, "message": "Only available on Linux", "output": ""}
+            
+        # Restart services
+        nm_output = await self._run_cmd(["sudo", "-n", "systemctl", "restart", "NetworkManager"])
+        wpa_output = await self._run_cmd(["sudo", "-n", "systemctl", "restart", "wpa_supplicant"])
+        
+        output = f"NetworkManager restart output: {nm_output or 'Success'}\nwpa_supplicant restart output: {wpa_output or 'Success'}"
+        
+        bus.publish("adapter.services_restored", {
+            "message": "Network services restarted (NetworkManager, wpa_supplicant)",
+            "payload": {"output": output}
+        })
+        return {"success": True, "message": "Network services restored", "output": output}
 
     async def start_monitor_mode(self, iface: str) -> dict:
         """

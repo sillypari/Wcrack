@@ -115,8 +115,8 @@ udevadm trigger || true
 
 echo "[+] Disabling systemd-resolved DNS stub listener for dnsmasq..."
 if [ -f /etc/systemd/resolved.conf ]; then
-    if grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf; then
-        sed -i 's/DNSStubListener=yes/DNSStubListener=no/g' /etc/systemd/resolved.conf
+    if grep -q "DNSStubListener" /etc/systemd/resolved.conf; then
+        sed -i 's/^#*DNSStubListener=yes/DNSStubListener=no/g' /etc/systemd/resolved.conf
         systemctl restart systemd-resolved || true
     fi
 fi

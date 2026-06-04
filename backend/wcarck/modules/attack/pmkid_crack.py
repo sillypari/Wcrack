@@ -22,6 +22,7 @@ class PMKIDCrackModule(Module):
 
     def __init__(self):
         self._process: Optional[ManagedProcess] = None
+        self._monitor_task: Optional[asyncio.Task] = None
         self._job_id: Optional[str] = None
         self._running = False
 
@@ -66,20 +67,14 @@ class PMKIDCrackModule(Module):
         converted = await convert_to_hashcat(cap_path, hash_file)
 
         if not converted:
-            bus.publish("module.error", {
-                "job_id": job_id, "module": self.name,
-                "level": "ERROR",
-                "message": "Failed to convert capture to hashcat format (hcxpcapngtool failed or not installed)"
-            })
-            return
+            raise RuntimeError("Failed to convert capture to hashcat format (hcxpcapngtool failed or not installed)")
 
         bus.publish("job.progress", {
             "job_id": job_id, "module": self.name,
             "status_message": f"Hash file created: {os.path.getsize(hash_file)} bytes"
         })
 
-        import uuid as uuid_mod
-        numeric_job_id = int(job_id) if str(job_id).isdigit() else abs(hash(uuid_mod.uuid4().hex)) % (2**31)
+        numeric_job_id = int(job_id) if str(job_id).isdigit() else uuid.uuid4().int % (2**31)
 
         async with SessionLocal() as session:
             stmt = select(CrackJob).where(CrackJob.id == numeric_job_id)
@@ -128,7 +123,7 @@ class PMKIDCrackModule(Module):
 
         bus.publish("module.started", {"job_id": job_id, "module": self.name})
 
-        asyncio.create_task(self._monitor_process(job_id, bssid, ssid, key_file))
+        self._monitor_task = asyncio.create_task(self._monitor_process(job_id, bssid, ssid, key_file))
 
     async def _monitor_process(self, job_id: str, bssid: Optional[str], ssid: Optional[str], key_file: str):
         if not self._process or not self._process._process:
@@ -138,10 +133,12 @@ class PMKIDCrackModule(Module):
         found_key = None
 
         progress_re = re.compile(r'(\d+)/(\d+).*\(([\d.]+)\s+H/s\)')
-        speed_re = re.compile(r'Speed.*#\s+(\d+).*\(([\d.]+)\s+H/s\)')
 
         while self._running:
-            line_bytes = await proc.stdout.readline()
+            try:
+                line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
             if not line_bytes:
                 break
             line = line_bytes.decode("utf-8", errors="ignore").strip()
@@ -208,8 +205,7 @@ class PMKIDCrackModule(Module):
                     "source": "hashcat"
                 })
 
-            import uuid as uuid_mod
-            numeric_job_id = int(job_id) if str(job_id).isdigit() else abs(hash(uuid_mod.uuid4().hex)) % (2**31)
+            numeric_job_id = int(job_id) if str(job_id).isdigit() else uuid.uuid4().int % (2**31)
             await session.execute(
                 update(CrackJob)
                 .where(CrackJob.id == numeric_job_id)
@@ -228,6 +224,13 @@ class PMKIDCrackModule(Module):
 
     async def stop(self, job_id: str) -> None:
         self._running = False
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._monitor_task = None
         if self._process:
             await self._process.stop()
             self._process = None

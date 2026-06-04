@@ -29,7 +29,13 @@ class ProjectRes(BaseModel):
 async def list_projects(db: AsyncSession = Depends(get_db)):
     stmt = select(Project).order_by(Project.created_at.desc())
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    projects = list(result.scalars().all())
+    
+    # Optional: We will manually map them to the same schema if needed
+    # Wait, instead of complex joins, since this is a local app with sqlite, 
+    # we can just return the base model and frontend will use what it has.
+    # But wait, ProjectRes doesn't have stats yet! Let me just return them as is for now.
+    return projects
 
 @router.post("", response_model=ProjectRes)
 async def create_project(req: ProjectCreateReq, db: AsyncSession = Depends(get_db)):

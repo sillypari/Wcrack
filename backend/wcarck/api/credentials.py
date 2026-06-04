@@ -16,6 +16,9 @@ class CredentialRes(BaseModel):
     client_mac: Optional[str]
     captured_at: datetime
     validated: bool
+    bssid: Optional[str] = None
+    username: Optional[str] = None
+    type: Optional[str] = "wpa_psk"
     
     class Config:
         from_attributes = True

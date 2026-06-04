@@ -12,7 +12,7 @@ async def verify_handshake(pcap_path: str) -> Tuple[str, str]:
         return "Invalid", ""
 
     if os.name == 'nt':
-        return "Valid", "11:22:33:44:55:66"
+        return "Valid", ""
 
     proc = None
     try:
@@ -66,7 +66,7 @@ async def parse_eapol_frames(pcap_path: str) -> Dict[str, Any]:
         proc = await asyncio.create_subprocess_exec(
             "tshark", "-r", pcap_path,
             "-T", "json",
-            "-Y", "eapol || pmkid",
+            "-Y", "eapol",
             "-e", "wlan.sa",
             "-e", "wlan.da",
             "-e", "eapol.keydes.type",
@@ -79,6 +79,12 @@ async def parse_eapol_frames(pcap_path: str) -> Dict[str, Any]:
         raw = stdout.decode('utf-8', errors='ignore').strip()
 
         if not raw:
+            result = await _parse_eapol_legacy(pcap_path)
+            return result
+
+        # Guard: reject absurdly large tshark output (>50MB) to prevent OOM
+        if len(raw) > 50 * 1024 * 1024:
+            logger.warning(f"tshark output too large ({len(raw)} bytes) for {pcap_path}, falling back to legacy")
             result = await _parse_eapol_legacy(pcap_path)
             return result
 
@@ -102,13 +108,13 @@ async def parse_eapol_frames(pcap_path: str) -> Dict[str, Any]:
                 is_request = (ki & 0x0080) != 0
                 key_descriptor = ki & 0x0007
 
-                if is_request and key_descriptor == 2:
+                if is_request and key_descriptor in (1, 2):
                     m_num = (ki >> 3) & 0x03
                     if m_num == 0:
                         result["m1"] = True
                     elif m_num == 2:
                         result["m3"] = True
-                elif not is_request and key_descriptor == 2:
+                elif not is_request and key_descriptor in (1, 2):
                     m_num = (ki >> 3) & 0x03
                     if m_num == 1:
                         result["m2"] = True
@@ -140,13 +146,9 @@ async def _parse_eapol_legacy(pcap_path: str) -> Dict[str, Any]:
         stdout, _ = await asyncio.wait_for(proc.communicate(input=b"1\n"), timeout=5.0)
         output = stdout.decode('utf-8', errors='ignore')
 
-        if "1 handshake" in output or "with PMKID" in output:
+        if "handshake" in output or "with PMKID" in output:
             result["m1"] = True
             result["m2"] = True
-        if "2 handshake" in output:
-            result["m3"] = True
-        if "3 handshake" in output or "4 handshake" in output:
-            result["m4"] = True
         if "PMKID" in output:
             result["pmkid"] = True
 

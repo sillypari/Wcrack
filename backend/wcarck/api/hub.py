@@ -230,6 +230,11 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("Client disconnected from WebSocket")
     finally:
+        # Explicitly close the async generator to release subscriber queue
+        try:
+            await event_stream.aclose()
+        except Exception:
+            pass
         try:
             await websocket.close()
         except RuntimeError:

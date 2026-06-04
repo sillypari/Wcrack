@@ -103,10 +103,9 @@ class JobWorker:
                         await JobQueueOps.mark_failed(session, job.id, f"Unknown module: {job.module_name}")
                         await session.commit()
                         continue
-                        
-                    # Execute with strict exception handling
+
+                    self._running_modules[job_id_str] = module
                     try:
-                        self._running_modules[job_id_str] = module
                         await module.start(job_id_str, job.params_json)
                         await JobQueueOps.mark_running(session, job.id)
                         await session.commit()
@@ -114,20 +113,28 @@ class JobWorker:
                         logger.warning(f"Job {job_id_str} failed: Resource Busy ({e})")
                         await JobQueueOps.mark_failed(session, job.id, str(e))
                         await session.commit()
-                        del self._running_modules[job_id_str]
+                        await self._stop_job(job_id_str)
                     except Exception as e:
                         logger.error(f"Job {job_id_str} crashed on start", exc_info=True)
-                        await JobQueueOps.mark_failed(session, job.id, f"Crash: {str(e)}")
-                        await session.commit()
-                        await self._stop_job(job_id_str) # Ensure cleanup
+                        try:
+                            await JobQueueOps.mark_failed(session, job.id, f"Crash: {str(e)}")
+                            await session.commit()
+                        except Exception:
+                            pass
+                        await self._stop_job(job_id_str)
                         
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"JobWorker loop error: {e}", exc_info=True)
+                for jid in list(self._running_modules.keys()):
+                    try:
+                        await self._stop_job(jid)
+                    except Exception:
+                        logger.error(f"Failed to cleanup orphaned job {jid}")
 
     async def _stop_job(self, job_id: str):
-        module = self._running_modules.get(job_id)
+        module = self._running_modules.pop(job_id, None)
         if not module:
             return
             
@@ -135,27 +142,17 @@ class JobWorker:
             await module.stop(job_id)
         except Exception as e:
             logger.error(f"Failed to cleanly stop module for job {job_id}: {e}")
-            
-        # In a real app we'd release the specific lease keys the module took.
-        # Here we just iterate and release any lease tied to this job.
-        lock = getattr(self.lease_manager, '_lock', getattr(self.lease_manager, '_adapter_locks', None))
-        if lock and hasattr(lock, '__aenter__'):
-            async with lock:
-                keys_to_del = [k for k, v in self.lease_manager._leases.items() if v.job_id == job_id]
-                for k in keys_to_del:
-                    del self.lease_manager._leases[k]
-        else:
-            keys_to_del = [k for k, v in self.lease_manager._leases.items() if v.job_id == job_id]
-            for k in keys_to_del:
-                del self.lease_manager._leases[k]
+
+        try:
+            await self.lease_manager.release_all_for_job(job_id)
+        except Exception as e:
+            logger.error(f"Failed to release leases for job {job_id}: {e}")
                 
         try:
-            # Attempt to mark completed in DB. Some job_ids might be UUID strings not in this table.
             async with SessionLocal() as session:
                 await JobQueueOps.mark_completed(session, job_id)
                 await session.commit()
         except Exception:
             pass
             
-        del self._running_modules[job_id]
         logger.info(f"Job {job_id} completely stopped and cleaned up")

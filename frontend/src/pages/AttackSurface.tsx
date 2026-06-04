@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Square, Check, Inbox, Zap, ArrowRight, Activity, Wifi, ShieldAlert, Cpu, List, Crosshair, TerminalSquare, AlertTriangle } from 'lucide-react'
+import { Square, Check, Inbox, Zap, ArrowRight, Activity, Wifi, ShieldAlert, Cpu, List, Crosshair, TerminalSquare, AlertTriangle, Signal } from 'lucide-react'
 import { useWcarckStore, Job, LogEntry } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
@@ -173,9 +173,6 @@ export function AttackSurface() {
     .filter(l => l.channel === 'Process' || l.channel === 'RF')
     .slice(0, 30) // Recent 30
 
-  // Count connected clients for Evil Twin
-  const targetClientsCount = targetBssid ? Array.from(clients.values()).filter(c => c.bssid === targetBssid).length : 0
-
   return (
     <div className="flex flex-col h-full animate-fade-in gap-4 font-sans">
       
@@ -194,7 +191,7 @@ export function AttackSurface() {
             <div className="flex items-center gap-4 text-xs font-mono text-text-disabled ml-7">
               <span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> CH: {targetNetwork.channel}</span>
               <span className="flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /> {targetNetwork.encryption}</span>
-              <span className="flex items-center gap-1.5"><Signal className="w-3.5 h-3.5" /> {targetNetwork.signal} dBm</span>
+              <span className="flex items-center gap-1.5"><Signal className="w-3.5 h-3.5" /> {targetNetwork.power ?? '—'} dBm</span>
             </div>
           </div>
         ) : (
@@ -344,22 +341,38 @@ export function AttackSurface() {
              >
                 Launch Deauth Attack
              </Button>
-             <Button 
-               size="sm" 
-               className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
-                disabled={!targetNetwork || !selectedAdapterIface || attackJobs.some(j => j.type === 'pmkid')}
-               onClick={() => startJob('attack.pmkid', { bssid: targetNetwork?.bssid, iface: selectedAdapterIface })}
-             >
-                Launch PMKID Capture
-             </Button>
-             <Button 
-               size="sm" 
-               className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
-                disabled={!targetNetwork || attackJobs.some(j => j.type === 'eviltwin')}
-               onClick={() => navigate('/eviltwin')}
-             >
-                Configure Evil Twin
-             </Button>
+              <Button 
+                size="sm" 
+                className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
+                 disabled={!targetNetwork || !selectedAdapterIface || attackJobs.some(j => j.type === 'pmkid')}
+                onClick={() => startJob('attack.pmkid', { bssid: targetNetwork?.bssid, iface: selectedAdapterIface })}
+              >
+                 Launch PMKID Capture
+              </Button>
+              <Button 
+                size="sm" 
+                className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
+                 disabled={!targetNetwork || attackJobs.some(j => j.type === 'pmkid_crack')}
+                onClick={() => navigate('/captures')}
+              >
+                 PMKID Crack
+              </Button>
+              <Button 
+                size="sm" 
+                className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
+                 disabled={!selectedAdapterIface || attackJobs.some(j => j.type === 'mitm')}
+                onClick={() => startJob('attack.mitm', { iface: selectedAdapterIface })}
+              >
+                 MITM Sniffer
+              </Button>
+              <Button 
+                size="sm" 
+                className="w-full bg-bg-surface text-text-primary border border-border-subtle hover:bg-bg-hover hover:border-border-default font-bold transition-colors"
+                 disabled={!targetNetwork || attackJobs.some(j => j.type === 'eviltwin')}
+                onClick={() => navigate('/eviltwin')}
+              >
+                 Configure Evil Twin
+              </Button>
           </div>
 
           {/* SECTION 4 & 5: CAPTURES & EAPOL */}
@@ -382,7 +395,7 @@ export function AttackSurface() {
                       <span className="font-bold text-text-primary text-xs truncate max-w-[150px]">{cap.ssid}</span>
                       <span className="text-[9px] font-mono text-text-disabled px-1 border border-border-subtle rounded">{cap.type.toUpperCase()}</span>
                     </div>
-                    {cap.type === 'handshake' && (
+                    {cap.type === 'eapol' && (
                        <div className="mb-2">
                          <EapolProgress m1={cap.eapolM1} m2={cap.eapolM2} m3={cap.eapolM3} m4={cap.eapolM4} />
                        </div>
