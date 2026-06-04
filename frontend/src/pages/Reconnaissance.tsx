@@ -378,23 +378,34 @@ export function Reconnaissance() {
                   ) : (
                     <div className="bg-bg-surface rounded border border-border-subtle divide-y divide-border-subtle max-h-48 overflow-y-auto">
                       {connectedClients.map(client => (
-                        <div key={client.mac} className="p-2.5 flex justify-between items-center hover:bg-bg-hover">
+                        <div key={client.mac} className="p-2.5 flex justify-between items-center hover:bg-bg-hover group/cli">
                           <div>
                             <div className="font-mono text-xs text-text-primary flex items-center gap-1.5">
                               {client.mac}
                               {client.randomized && (
-                                <AppTooltip content="Randomized MAC">
+                                <AppTooltip content="Randomized MAC — deauth may not work">
                                   <Shuffle className="w-3 h-3 text-status-warning" />
                                 </AppTooltip>
                               )}
                             </div>
                             <div className="text-[10px] text-text-disabled mt-0.5">Pkt: {client.packets}</div>
                           </div>
-                          <div
-                            className="text-xs font-mono"
-                            style={{ color: client.power > -65 ? 'var(--status-success)' : 'var(--status-warning)' }}
-                          >
-                            {client.power} dBm
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="text-xs font-mono"
+                              style={{ color: client.power > -65 ? 'var(--status-success)' : 'var(--status-warning)' }}
+                            >
+                              {client.power} dBm
+                            </div>
+                            {monAdapter && (
+                              <button
+                                onClick={() => startJob('deauth', { bssid: selectedNetwork!.bssid, client_mac: client.mac, iface: monAdapter!.iface })}
+                                title="Targeted deauth this client"
+                                className="opacity-0 group-hover/cli:opacity-100 transition-opacity text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-status-error/10 text-status-error border border-status-error/25 hover:bg-status-error/20"
+                              >
+                                Deauth
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -411,7 +422,10 @@ export function Reconnaissance() {
                       variant="outline"
                       size="sm"
                       className="bg-status-error/8 hover:bg-status-error/16 text-status-error border-status-error/25 w-full"
-                      onClick={() => startJob('deauth', { bssid: selectedNetwork.bssid })}
+                      onClick={() => {
+                        if (!monAdapter) { return }
+                        startJob('deauth', { bssid: selectedNetwork.bssid, iface: monAdapter.iface })
+                      }}
                     >
                       <WifiOff className="w-3.5 h-3.5 mr-1.5" />Deauth All
                     </Button>

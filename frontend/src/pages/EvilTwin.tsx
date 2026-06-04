@@ -70,6 +70,7 @@ export function EvilTwin() {
   const [targetBssid, setTargetBssid] = React.useState(uiState.focusedNetworkBssid || '')
   const [spoofSsid, setSpoofSsid] = React.useState('')
   const [selectedTemplate, setSelectedTemplate] = React.useState('router')
+  const [channel, setChannel] = React.useState(6)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const activeTwinJob = activeJobs.find(j => j.type === 'eviltwin')
@@ -87,10 +88,14 @@ export function EvilTwin() {
   }, [activeTwinJob])
 
   React.useEffect(() => {
-    if (targetBssid && !spoofSsid) {
+    if (targetBssid) {
       const net = networks.get(targetBssid)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (net) setSpoofSsid(net.ssid)
+      if (net) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        if (!spoofSsid) setSpoofSsid(net.ssid)
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setChannel(net.channel || 6)
+      }
     }
   }, [targetBssid, networks, spoofSsid])
 
@@ -193,6 +198,24 @@ export function EvilTwin() {
               <h3 className="text-base font-semibold text-text-primary mb-1">Select Target</h3>
               <p className="text-sm text-text-disabled mb-6">Specify the network you want to clone.</p>
               <div className="space-y-4">
+                {/* Network picker from discovered networks */}
+                {networks.size > 0 && (
+                  <div className="space-y-2">
+                    <Label>Select Discovered Network</Label>
+                    <select
+                      className="w-full bg-bg-active border border-border-default rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+                      value={targetBssid}
+                      onChange={e => setTargetBssid(e.target.value)}
+                    >
+                      <option value="">— pick a network or enter manually —</option>
+                      {Array.from(networks.values()).map(n => (
+                        <option key={n.bssid} value={n.bssid}>
+                          {n.ssid || '(hidden)'} [{n.bssid}] Ch{n.channel} {n.encryption}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Target BSSID</Label>
                   <div className="flex gap-2">
@@ -203,7 +226,7 @@ export function EvilTwin() {
                       className="font-mono bg-bg-active border-border-subtle flex-1"
                     />
                     <Button variant="outline" onClick={() => navigate('/recon')} className="bg-bg-active border-border-subtle">
-                      Browse
+                      Scan
                     </Button>
                   </div>
                 </div>
@@ -215,6 +238,18 @@ export function EvilTwin() {
                     onChange={e => setSpoofSsid(e.target.value)}
                     className="bg-bg-active border-border-subtle"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label>Channel</Label>
+                  <select
+                    className="w-full bg-bg-active border border-border-default rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+                    value={channel}
+                    onChange={e => setChannel(Number(e.target.value))}
+                  >
+                    {[1,2,3,4,5,6,7,8,9,10,11,12,13,36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140,144,149,153,157,161,165].map(ch => (
+                      <option key={ch} value={ch}>Channel {ch} {ch > 14 ? '(5 GHz)' : '(2.4 GHz)'}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -273,6 +308,7 @@ export function EvilTwin() {
                 {[
                   { label: 'Target BSSID', value: targetBssid, mono: true },
                   { label: 'Spoofed SSID', value: spoofSsid, mono: false },
+                  { label: 'Channel', value: `${channel} (${channel > 14 ? '5 GHz' : '2.4 GHz'})`, mono: false },
                   { label: 'Template', value: TEMPLATES.find(t => t.id === selectedTemplate)?.name ?? '', mono: false },
                 ].map(item => (
                   <div key={item.label} className="flex justify-between items-center">
@@ -321,7 +357,7 @@ export function EvilTwin() {
         isOpen={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         title="Deploy Evil Twin?"
-        description={`This will start broadcasting '${spoofSsid}' and launch the Deauth module against ${targetBssid}.`}
+        description={`This will broadcast SSID '${spoofSsid}' on Ch${channel} with '${TEMPLATES.find(t => t.id === selectedTemplate)?.name}' portal. All DNS/DHCP traffic will be hijacked.`}
         confirmText="Launch Attack"
         variant="destructive"
         onConfirm={() => {
@@ -329,7 +365,16 @@ export function EvilTwin() {
             toast.error('Requires both an AP adapter and Monitor adapter.')
             return
           }
-          startJob('eviltwin', { targetBssid, spoofSsid, template: selectedTemplate })
+          // Backend eviltwin.py expects: ssid, channel, template, iface
+          // AP adapter iface is needed; if none found, use 'wlan_ap' as default
+          const apIface = adapters.find(a => a.mode === 'managed' || a.mode === 'ap')?.iface || 'wlan_ap'
+          startJob('eviltwin', { 
+            ssid: spoofSsid, 
+            channel, 
+            template: selectedTemplate,
+            iface: apIface,
+            bssid: targetBssid  // used for deauth companion if needed
+          })
         }}
       />
     </div>

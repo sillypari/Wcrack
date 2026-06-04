@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Volume2, VolumeX, FileDown, AlertTriangle, Maximize2, Minimize2, Cpu } from "lucide-react"
+import { Volume2, VolumeX, FileDown, AlertTriangle, Maximize2, Minimize2 } from "lucide-react"
 import { useWcarckStore } from "@/store/useWcarckStore"
 import { Button } from "@/components/ui/button"
 import { AppTooltip } from "@/components/ui/app-tooltip"
@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
 export function Topbar() {
-  const { uiState, toggleAudio, adapters, sessionStartedAt, logs, projects, activeProjectId, simulatorRunning, toggleSimulator } = useWcarckStore()
+  const { uiState, toggleAudio, adapters, sessionStartedAt, logs, projects, activeProjectId } = useWcarckStore()
   const [elapsed, setElapsed] = React.useState("00:00:00")
   const [isFullscreen, setIsFullscreen] = React.useState(!!document.fullscreenElement)
   
@@ -127,21 +127,6 @@ export function Topbar() {
             ))}
           </div>
         )}
-
-        {/* Simulation mode toggle */}
-        <AppTooltip content={simulatorRunning ? "Simulation Mode: ACTIVE" : "Simulation Mode: INACTIVE"} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSimulator}
-            className={cn(
-              "h-8 w-8 flex-shrink-0 transition-all duration-300",
-              simulatorRunning ? "text-status-running bg-status-running/10 border border-status-running/20 hover:bg-status-running/20" : "text-text-tertiary hover:text-text-primary"
-            )}
-          >
-            <Cpu className={cn("w-4 h-4", simulatorRunning && "animate-pulse")} />
-          </Button>
-        </AppTooltip>
 
         {/* Audio toggle */}
         <AppTooltip content={uiState.audioEnabled ? "Mute audio alerts" : "Enable audio alerts"} side="bottom">

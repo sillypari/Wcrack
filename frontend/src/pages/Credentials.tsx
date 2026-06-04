@@ -53,7 +53,11 @@ function PasswordCell({ credential }: { credential: Credential }) {
 }
 
 export function Credentials() {
-  const { credentials } = useWcarckStore()
+  const { credentials, fetchInitialState } = useWcarckStore()
+  
+  React.useEffect(() => {
+    fetchInitialState()
+  }, [fetchInitialState])
   const [filterValid, setFilterValid] = React.useState(true)
   const [filterInvalid, setFilterInvalid] = React.useState(true)
 
@@ -197,8 +201,11 @@ export function Credentials() {
                       <div className="text-[10px] text-text-disabled truncate">{cred.vendor || 'Unknown Vendor'}</div>
                     </div>
 
-                    {/* Date Captured */}
+                    {/* Type + Date Captured */}
                     <div className="w-48 flex-shrink-0 font-mono text-xs text-text-disabled text-right">
+                      <div className="text-[9px] uppercase font-semibold text-text-disabled mb-0.5">
+                        {cred.type === 'portal' ? 'Captive Portal' : 'WPA PSK'}
+                      </div>
                       {new Date(cred.timestamp).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>

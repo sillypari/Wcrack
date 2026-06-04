@@ -146,8 +146,8 @@ interface SystemState {
   projects: Project[]
   activeProjectId: number | null
   uiState: UiState
-  simulatorRunning: boolean
 }
+// simulatorRunning removed — simulator backend was deleted
 
 interface WcarckStore extends SystemState {
   connectWebSocket: () => void
@@ -170,8 +170,7 @@ interface WcarckStore extends SystemState {
   createProject: (name: string, client?: string, notes?: string) => Promise<void>
   activateProject: (id: number) => Promise<void>
   deleteProject: (id: number) => Promise<void>
-  fetchSimulatorStatus: () => Promise<void>
-  toggleSimulator: () => Promise<void>
+
 }
 
 const MAX_LOGS = 200
@@ -195,7 +194,7 @@ export const useWcarckStore = create<WcarckStore>()(
         activeScopeId: null,
         projects: [],
         activeProjectId: null,
-        simulatorRunning: false,
+
         uiState: {
           sidebarPinned: false,
           lastActionBarDismissed: null,
@@ -234,7 +233,6 @@ export const useWcarckStore = create<WcarckStore>()(
         fetchInitialState: async () => {
           try {
             await get().fetchProjects()
-            await get().fetchSimulatorStatus()
             
             const res = await Promise.all([
               fetch('http://127.0.0.1:8000/api/adapters').then(r => r.ok ? r.json() : []),
@@ -269,7 +267,37 @@ export const useWcarckStore = create<WcarckStore>()(
             const clients = new Map<string, Client>()
             clientsList.forEach((c: Client) => clients.set(c.mac, c))
 
-            set({ adapters, networks, clients, captures, credentials, activeJobs })
+            // Normalize credentials from backend format
+            const normCredentials = (credentials as any[]).map((c: any) => ({
+              id: String(c.id),
+              bssid: c.bssid || '',
+              ssid: c.ssid || c.network_ssid || '',
+              clientMac: c.clientMac || c.client_mac || '',
+              username: c.username || '',
+              passwordHash: c.passwordHash || c.password_hash || '',
+              plainText: c.plainText || c.password || '',
+              type: c.type || 'wpa_psk',
+              valid: c.valid !== undefined ? c.valid : (c.validated || false),
+              vendor: c.vendor || '',
+              timestamp: c.captured_at ? new Date(c.captured_at).getTime() : (c.timestamp ? c.timestamp * 1000 : Date.now()),
+            }))
+            
+            // Normalize captures from backend format
+            const normCaptures = (captures as any[]).map((c: any) => ({
+              id: String(c.id),
+              bssid: c.bssid || '',
+              ssid: c.ssid || '',
+              type: c.type === 'wpa_handshake' ? 'eapol' : (c.type || 'eapol'),
+              status: c.status === 'valid' ? 'Valid' : c.status === 'partial' ? 'Partial' : (c.status || 'Invalid'),
+              filePath: c.path || c.filePath || '',
+              timestamp: c.created_at ? new Date(c.created_at).getTime() : (c.timestamp || Date.now()),
+              eapolM1: c.eapolM1 || false,
+              eapolM2: c.eapolM2 || false,
+              eapolM3: c.eapolM3 || false,
+              eapolM4: c.eapolM4 || false,
+            }))
+            
+            set({ adapters, networks, clients, captures: normCaptures, credentials: normCredentials, activeJobs })
           } catch {
             // Silent fallback, wait for WS history
           }
@@ -316,18 +344,44 @@ export const useWcarckStore = create<WcarckStore>()(
 
           const newState = { lastEventSeq: event.seq } as Partial<SystemState>
           
-          switch (event.topic) {
+          // hub.py sends normalized events: {id, seq, event_type, payload, message, level, channel...}
+          // Raw bus events have: topic, payload at root
+          const evTopic: string = event.event_type || event.topic || ''
+          const evPayload = event.payload || {}
+
+          switch (evTopic) {
             case 'network.discovered':
             case 'network.updated': {
               const netMap = new Map(state.networks)
-              netMap.set(event.payload.bssid, event.payload)
+              const net = {
+                bssid: evPayload.bssid,
+                ssid: evPayload.ssid || '',
+                channel: evPayload.channel || 0,
+                encryption: evPayload.encryption || evPayload.privacy || '',
+                cipher: evPayload.cipher || '',
+                auth: evPayload.auth || '',
+                pmf: evPayload.pmf || false,
+                power: evPayload.power || evPayload.signal_dbm || 0,
+                beacons: evPayload.beacons || 0,
+                data: evPayload.data || 0,
+                lastSeen: evPayload.last_seen ? evPayload.last_seen * 1000 : Date.now(),
+              }
+              if (net.bssid) netMap.set(net.bssid, net as any)
               newState.networks = netMap
               break
             }
             case 'client.discovered':
             case 'client.updated': {
               const cliMap = new Map(state.clients)
-              cliMap.set(event.payload.mac, event.payload)
+              const cli = {
+                mac: evPayload.mac,
+                bssid: evPayload.bssid || null,
+                power: evPayload.power || evPayload.signal_dbm || 0,
+                packets: evPayload.packets || 0,
+                lastSeen: evPayload.last_seen ? evPayload.last_seen * 1000 : Date.now(),
+                randomized: evPayload.randomized || false,
+              }
+              if (cli.mac) cliMap.set(cli.mac, cli as any)
               newState.clients = cliMap
               break
             }
@@ -341,9 +395,9 @@ export const useWcarckStore = create<WcarckStore>()(
             }
             case 'module.started': {
               const jobs = [...state.activeJobs]
-              const jobId = String(event.payload.job_id)
+              const jobId = String(evPayload.job_id)
               const idx = jobs.findIndex(j => j.id === jobId)
-              const rawModule = event.payload.module || ""
+              const rawModule = evPayload.module || ""
               const type = rawModule.startsWith("recon") ? "recon" : 
                            rawModule.startsWith("attack.deauth") ? "deauth" :
                            rawModule.startsWith("attack.pmkid") ? "pmkid" :
@@ -353,7 +407,7 @@ export const useWcarckStore = create<WcarckStore>()(
               const newJob = {
                 id: jobId,
                 type,
-                target: type === "recon" ? "all" : (event.payload.target || "target"),
+                target: type === "recon" ? "all" : (evPayload.target || evPayload.bssid || "target"),
                 status: "running" as const,
                 progress: 0,
                 startedAt: Date.now(),
@@ -366,41 +420,54 @@ export const useWcarckStore = create<WcarckStore>()(
               break
             }
             case 'module.stopped': {
-              const jobId = String(event.payload.job_id)
+              const jobId = String(evPayload.job_id)
               newState.activeJobs = state.activeJobs.filter(j => j.id !== jobId)
               break
             }
             case 'job.started':
             case 'job.updated': {
               const jobs = [...state.activeJobs]
-              const idx = jobs.findIndex(j => j.id === event.payload.id)
-              if (idx >= 0) jobs[idx] = { ...jobs[idx], ...event.payload }
-              else jobs.push(event.payload)
+              const idx = jobs.findIndex(j => j.id === String(evPayload.id))
+              if (idx >= 0) jobs[idx] = { ...jobs[idx], ...evPayload }
+              else jobs.push({ ...evPayload, id: String(evPayload.id) } as any)
               newState.activeJobs = jobs
               break
             }
             case 'job.stopped':
             case 'job.completed':
             case 'job.failed': {
-              newState.activeJobs = state.activeJobs.filter(j => j.id !== event.payload.id)
-              if (event.topic === 'job.failed' && !state.uiState.focusMode) {
-                 toast.error(`Job failed: ${event.payload.type}`)
+              newState.activeJobs = state.activeJobs.filter(j => j.id !== String(evPayload.id))
+              if (evTopic === 'job.failed' && !state.uiState.focusMode) {
+                 toast.error(`Job failed: ${evPayload.type || evPayload.module || evTopic}`)
               }
               break
             }
+            case 'handshake.captured':
             case 'capture.handshake.eapol_m2':
             case 'capture.handshake.eapol_m3':
             case 'capture.handshake.eapol_m4': {
-              const caps = [...state.captures]
-              const idx = caps.findIndex(c => c.id === event.payload.id)
-              if (idx >= 0) caps[idx] = { ...caps[idx], ...event.payload }
-              else caps.unshift(event.payload)
-              newState.captures = caps
+              // Re-fetch captures from API when a new handshake is captured
+              setTimeout(() => get().fetchInitialState(), 500)
               break
             }
             case 'credential.captured': {
-              const creds = [event.payload, ...state.credentials]
-              newState.credentials = creds
+              // Normalize backend credential format to frontend Credential type
+              const rawCred = evPayload
+              const normCred = {
+                id: String(rawCred.id || Date.now()),
+                bssid: rawCred.bssid || rawCred.client_mac || '',
+                ssid: rawCred.ssid || rawCred.network_ssid || '',
+                clientMac: rawCred.clientMac || rawCred.client_mac || '',
+                username: rawCred.username || '',
+                passwordHash: rawCred.passwordHash || rawCred.password_hash || '',
+                plainText: rawCred.plainText || rawCred.password || '',
+                type: rawCred.type || 'wpa_psk',
+                valid: rawCred.valid || rawCred.validated || false,
+                vendor: rawCred.vendor || '',
+                timestamp: rawCred.timestamp ? rawCred.timestamp * 1000 : Date.now(),
+              }
+              const creds = [normCred, ...state.credentials]
+              newState.credentials = creds as any
               break
             }
             case 'project.activated': {
@@ -413,15 +480,15 @@ export const useWcarckStore = create<WcarckStore>()(
             case 'job.progress': {
               // Hashcat/aircrack progress: {job_id, progress, speed, eta, status_message}
               const jobs = [...state.activeJobs]
-              const jobId = String(event.payload?.job_id ?? event.job_id ?? '')
+              const jobId = String(evPayload?.job_id ?? event.job_id ?? '')
               const idx = jobs.findIndex(j => j.id === jobId)
               if (idx >= 0) {
                 jobs[idx] = {
                   ...jobs[idx],
-                  progress: event.payload?.progress ?? jobs[idx].progress,
-                  speed: event.payload?.speed ?? jobs[idx].speed,
-                  eta: event.payload?.eta ?? jobs[idx].eta,
-                  status_message: event.payload?.status_message ?? jobs[idx].status_message,
+                  progress: evPayload?.progress ?? jobs[idx].progress,
+                  speed: evPayload?.speed ?? jobs[idx].speed,
+                  eta: evPayload?.eta ?? jobs[idx].eta,
+                  status_message: evPayload?.status_message ?? jobs[idx].status_message,
                 }
               }
               newState.activeJobs = jobs
@@ -600,39 +667,7 @@ export const useWcarckStore = create<WcarckStore>()(
           }
         },
 
-        fetchSimulatorStatus: async () => {
-          try {
-            const res = await fetch('http://127.0.0.1:8000/api/simulator/status')
-            if (res.ok) {
-              const data = await res.json()
-              set({ simulatorRunning: data.status === 'running' })
-            }
-          } catch {
-            // Ignore
-          }
-        },
 
-        toggleSimulator: async () => {
-          try {
-            const res = await fetch('http://127.0.0.1:8000/api/simulator/toggle', { method: 'POST' })
-            if (res.ok) {
-              const data = await res.json()
-              const isRunning = data.status === 'running'
-              set({ simulatorRunning: isRunning })
-              if (isRunning) {
-                toast.success("Simulation mode activated")
-              } else {
-                toast.success("Simulation mode deactivated")
-              }
-            } else {
-              const text = await res.text()
-              throw new Error(text || `HTTP ${res.status}`)
-            }
-          } catch (e) {
-            const err = e as Error
-            toast.error(`Failed to toggle simulator mode: ${err.message}`)
-          }
-        }
       }),
       {
         name: 'wcarck-storage',
