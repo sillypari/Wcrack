@@ -27,9 +27,12 @@ class JobRes(BaseModel):
 @router.post("/start", response_model=JobRes)
 async def start_job(req: JobCreateReq, db: AsyncSession = Depends(get_db)):
     # Basic validation
-    valid_modules = ["recon.scanner", "attack.deauth", "attack.pmkid", "attack.eviltwin", "crack.aircrack"]
+    valid_modules = ["recon.scanner", "attack.deauth", "attack.pmkid", "attack.eviltwin", "crack.aircrack", "attack.pmkid_crack", "attack.mitm"]
     if req.module_name not in valid_modules:
         raise HTTPException(status_code=400, detail="Invalid module_name")
+        
+    if not req.handler_name.startswith("start"):
+        raise HTTPException(status_code=400, detail="Invalid handler_name")
         
     from wcarck.api.projects import get_active_project
     from wcarck.db.models import Scope

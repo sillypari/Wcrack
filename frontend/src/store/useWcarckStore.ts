@@ -8,6 +8,13 @@ export type Adapter = {
   mode: string
   bands: number[]
   role: string
+  capabilities?: {
+    monitor: boolean
+    ap: boolean
+    injection: number
+    '5ghz': boolean
+    tested_at: number
+  }
   chipset: string
   driver: string
   channel: number
@@ -54,6 +61,9 @@ export type Job = {
   speed?: string
   eta?: string
   status_message?: string
+  connected?: number
+  dhcpLeases?: number
+  dhcp_leases?: number
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: any
 }
@@ -171,8 +181,13 @@ interface WcarckStore extends SystemState {
   fetchWordlists: () => Promise<void>
   fetchProjects: () => Promise<void>
   createProject: (name: string, client?: string, notes?: string) => Promise<void>
+  updateProject: (id: number, name: string, client?: string, notes?: string) => Promise<void>
   activateProject: (id: number) => Promise<void>
   deleteProject: (id: number) => Promise<void>
+  
+  // Hardware specific
+  setRole: (iface: string, role: string) => Promise<void>
+  runDiagnostics: (iface: string) => Promise<void>
   checkKill: () => Promise<void>
   restoreNetwork: () => Promise<void>
   checkKillOutput: string | null
@@ -305,7 +320,7 @@ export const useWcarckStore = create<WcarckStore>()(
               eapolM4: c.eapolM4 || false,
               sizeBytes: c.size_bytes || 0,
               sha256: c.sha256 || 'unknown',
-            }))
+            })) as any[]
             
             set({ adapters, networks, clients, captures: normCaptures, credentials: normCredentials, activeJobs })
           } catch {
@@ -410,9 +425,11 @@ export const useWcarckStore = create<WcarckStore>()(
               const rawModule = evPayload.module || ""
               const type = rawModule.startsWith("recon") ? "recon" : 
                            rawModule.startsWith("attack.deauth") ? "deauth" :
+                           rawModule.startsWith("attack.pmkid_crack") ? "pmkid_crack" :
                            rawModule.startsWith("attack.pmkid") ? "pmkid" :
                            rawModule.startsWith("attack.eviltwin") ? "eviltwin" :
-                           rawModule.startsWith("crack") ? "crack" : rawModule
+                           rawModule.startsWith("attack.mitm") ? "mitm" :
+                           (rawModule.startsWith("crack") || rawModule === "attack.crack") ? "crack" : rawModule
               
               const newJob = {
                 id: jobId,
@@ -488,18 +505,23 @@ export const useWcarckStore = create<WcarckStore>()(
               break
             }
             case 'job.progress': {
-              // Hashcat/aircrack progress: {job_id, progress, speed, eta, status_message}
               const jobs = [...state.activeJobs]
               const jobId = String(evPayload?.job_id ?? event.job_id ?? '')
               const idx = jobs.findIndex(j => j.id === jobId)
               if (idx >= 0) {
                 jobs[idx] = {
                   ...jobs[idx],
-                  progress: evPayload?.progress ?? jobs[idx].progress,
-                  speed: evPayload?.speed ?? jobs[idx].speed,
+                  progress: evPayload?.progress_pct ?? evPayload?.progress ?? jobs[idx].progress,
+                  speed: evPayload?.speed_kps ?? evPayload?.speed ?? jobs[idx].speed,
                   eta: evPayload?.eta ?? jobs[idx].eta,
                   status_message: evPayload?.status_message ?? jobs[idx].status_message,
+                  connected: evPayload?.connected ?? jobs[idx].connected,
+                  dhcpLeases: evPayload?.dhcp_leases ?? evPayload?.dhcpLeases ?? jobs[idx].dhcpLeases,
                 }
+              }
+              newState.activeJobs = jobs
+              break
+            }
               }
               newState.activeJobs = jobs
               break
@@ -562,6 +584,9 @@ export const useWcarckStore = create<WcarckStore>()(
             } else if (moduleName === 'crack') {
               backendModuleName = 'crack.aircrack'
               handlerName = 'start_crack'
+            } else if (moduleName === 'pmkid_crack') {
+              backendModuleName = 'attack.pmkid_crack'
+              handlerName = 'start_pmkid_crack'
             }
 
             const res = await fetch('http://127.0.0.1:8000/api/jobs/start', {
@@ -641,6 +666,22 @@ export const useWcarckStore = create<WcarckStore>()(
           }
         },
 
+        updateProject: async (id, name, client, notes) => {
+          try {
+            const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, client, notes })
+            })
+            if (!res.ok) throw new Error('Failed to update project')
+            await get().fetchProjects()
+            toast.success('Project updated successfully')
+          } catch (e: any) {
+            toast.error(e.message || 'Failed to update project')
+            throw e
+          }
+        },
+
         activateProject: async (id) => {
           try {
             const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}/activate`, {
@@ -659,24 +700,61 @@ export const useWcarckStore = create<WcarckStore>()(
           }
         },
 
-        deleteProject: async (id) => {
+        deleteProject: async (id: number) => {
           try {
-            const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}`, {
-              method: 'DELETE'
+            const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}`, { method: 'DELETE' })
+            if (!res.ok) throw new Error(await res.text())
+            const { projects, activeProjectId } = get()
+            set({ 
+              projects: projects.filter(p => p.id !== id),
+              activeProjectId: activeProjectId === id ? null : activeProjectId
             })
-            if (!res.ok) {
-              const err = await res.text()
-              throw new Error(err || "Failed to delete project")
+            if (activeProjectId === id) {
+              set({ networks: new Map(), clients: new Map(), activeJobs: [], captures: [], credentials: [] })
             }
-            toast.success("Project deleted")
-            await get().fetchProjects()
-            if (get().activeProjectId === id) {
-              set({ activeProjectId: null })
-              await get().fetchInitialState()
-            }
+            toast.success('Project deleted')
           } catch (e) {
-            const err = e as Error
-            toast.error(`Failed to delete project: ${err.message}`)
+            toast.error(`Failed to delete project: ${(e as Error).message}`)
+          }
+        },
+
+        setRole: async (iface: string, role: string) => {
+          try {
+            const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/role`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role })
+            })
+            if (!res.ok) throw new Error(await res.text())
+            
+            const { adapters } = get()
+            set({ adapters: adapters.map(a => a.iface === iface ? { ...a, role } : a) })
+            toast.success(`Role for ${iface} updated to ${role}`)
+          } catch (e) {
+            toast.error(`Failed to set role: ${(e as Error).message}`)
+          }
+        },
+
+        runDiagnostics: async (iface: string) => {
+          try {
+            toast.info(`Running diagnostics on ${iface}... This may take 10-15 seconds.`)
+            const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/diagnostics`, {
+              method: 'POST'
+            })
+            if (!res.ok) throw new Error(await res.text())
+            const data = await res.json()
+            
+            const { adapters } = get()
+            set({ 
+              adapters: adapters.map(a => 
+                a.iface === iface 
+                  ? { ...a, role: data.role, capabilities: data.capabilities } 
+                  : a
+              ) 
+            })
+            toast.success(`Diagnostics completed for ${iface}. Role auto-assigned to ${data.role}.`)
+          } catch (e) {
+            toast.error(`Diagnostics failed: ${(e as Error).message}`)
           }
         },
 

@@ -84,7 +84,15 @@ export function Captures() {
     try {
       const res = await fetch(`http://127.0.0.1:8000/api/captures/${captureId}/clean`, { method: 'POST' })
       if (res.ok) {
-        toast.success("PCAP file successfully sanitized via wpaclean")
+        const data = await res.json()
+        const reductionPct = data.reduction_pct || 0
+        const originalKB = data.original_size ? (data.original_size / 1024).toFixed(1) : '?'
+        const newKB = data.size_bytes ? (data.size_bytes / 1024).toFixed(1) : '?'
+        if (reductionPct > 0) {
+          toast.success(`PCAP sanitized: ${originalKB} KB → ${newKB} KB (${reductionPct}% reduction)`)
+        } else {
+          toast.success("PCAP file successfully sanitized via wpaclean")
+        }
         await fetchInitialState()
       } else {
         const err = await res.text()
@@ -326,11 +334,13 @@ export function Captures() {
                   <div className="w-16 flex-shrink-0">
                     <span className={cn(
                       'text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border',
-                      cap.type === 'eapol'
+                      cap.type === 'eapol' || cap.type === 'wpa_handshake'
                         ? 'bg-status-info/15 text-status-info border-status-info/25'
+                        : cap.type === 'pmkid'
+                        ? 'bg-accent/15 text-accent border-accent/25'
                         : 'bg-status-warning/15 text-status-warning border-status-warning/25'
                     )}>
-                      {cap.type}
+                      {cap.type === 'wpa_handshake' ? 'EAPOL' : cap.type}
                     </span>
                   </div>
 
@@ -347,7 +357,7 @@ export function Captures() {
 
                   {/* EAPOL */}
                   <div className="w-28 flex-shrink-0">
-                    {cap.type === 'eapol' ? (
+                    {(cap.type === 'eapol' || cap.type === 'wpa_handshake') ? (
                       <EapolMini m1={cap.eapolM1} m2={cap.eapolM2} m3={cap.eapolM3} m4={cap.eapolM4} />
                     ) : (
                       <span className="text-text-disabled text-xs font-mono">-</span>
@@ -392,6 +402,7 @@ export function Captures() {
                         disabled={isCleaning}
                         onClick={() => handleCleanCapture(cap.id)}
                         className="h-7 w-7 p-0 bg-bg-active border-border-subtle hover:bg-bg-hover"
+                        aria-label="Clean Capture"
                       >
                         <Eraser className={cn("w-3.5 h-3.5 text-status-info", isCleaning && "animate-spin")} />
                       </Button>
@@ -403,6 +414,7 @@ export function Captures() {
                         size="sm"
                         onClick={() => handleViewStations(cap)}
                         className="h-7 w-7 p-0 bg-bg-active border-border-subtle hover:bg-bg-hover"
+                        aria-label="View Stations"
                       >
                         <Info className="w-3.5 h-3.5 text-text-secondary" />
                       </Button>
@@ -414,6 +426,7 @@ export function Captures() {
                         size="sm"
                         onClick={() => handleDownload(cap)}
                         className="h-7 w-7 p-0 bg-bg-active border-border-subtle hover:bg-bg-hover"
+                        aria-label="Download capture"
                       >
                         <Download className="w-3.5 h-3.5 text-text-secondary" />
                       </Button>
@@ -436,16 +449,17 @@ export function Captures() {
 
       {/* ── STATIONS LIST MODAL ─────────────────────────────────────────── */}
       {isStationModalOpen && selectedCaptureForStations && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="stations-modal-title">
           <div className="bg-bg-elevated border border-border-default rounded-xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 animate-scale-in">
             <div className="flex justify-between items-start border-b border-border-subtle pb-3">
               <div>
-                <h3 className="text-md font-bold text-text-primary">Captured BSSID Stations</h3>
+                <h3 id="stations-modal-title" className="text-md font-bold text-text-primary">Captured BSSID Stations</h3>
                 <p className="text-xs text-text-disabled mt-0.5">Target BSSID: {selectedCaptureForStations.bssid}</p>
               </div>
               <button 
                 onClick={() => setIsStationModalOpen(false)}
                 className="text-text-disabled hover:text-text-primary font-mono text-sm leading-none"
+                aria-label="Close modal"
               >
                 ✕
               </button>

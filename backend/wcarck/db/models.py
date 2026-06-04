@@ -46,7 +46,14 @@ class Adapter(Base):
     chipset: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     driver: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     current_mode: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    role: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    bands: Mapped[list] = mapped_column(JSON, default=lambda: [2.4, 5])
+    channel: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    rssi: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    rx: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    tx: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    status: Mapped[Optional[str]] = mapped_column(String, default='up')
+    role: Mapped[Optional[str]] = mapped_column(String, nullable=True, default="Auto")
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 class ResourceLease(Base):
@@ -140,6 +147,10 @@ class Capture(Base):
     hashcat_format: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String, default="Invalid")
+    eapolM1: Mapped[bool] = mapped_column(Boolean, default=False)
+    eapolM2: Mapped[bool] = mapped_column(Boolean, default=False)
+    eapolM3: Mapped[bool] = mapped_column(Boolean, default=False)
+    eapolM4: Mapped[bool] = mapped_column(Boolean, default=False)
     exported: Mapped[bool] = mapped_column(Boolean, default=False)
     scope_id: Mapped[int] = mapped_column(ForeignKey("scopes.id"))
     project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True)
@@ -164,7 +175,7 @@ class Credential(Base):
     __tablename__ = "credentials"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    ap_session_id: Mapped[int] = mapped_column(ForeignKey("ap_sessions.id"))
+    ap_session_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ap_sessions.id"), nullable=True)
     network_ssid: Mapped[str] = mapped_column(String)
     password: Mapped[str] = mapped_column(String)
     kdf_salt: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
@@ -176,6 +187,11 @@ class Credential(Base):
     validated: Mapped[bool] = mapped_column(Boolean, default=False)
     validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    
+    # Extra columns for complete integration:
+    bssid: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 class SessionLog(Base):
     __tablename__ = "session_log"

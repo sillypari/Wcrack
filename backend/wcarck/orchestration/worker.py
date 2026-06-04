@@ -6,6 +6,8 @@ from wcarck.orchestration.leases import RadioLeaseManager, ResourceBusyError
 from wcarck.modules.recon.scanner import ScannerModule
 from wcarck.modules.attack.deauth import DeauthModule
 from wcarck.modules.attack.pmkid import PMKIDModule
+from wcarck.modules.attack.pmkid_crack import PMKIDCrackModule
+from wcarck.modules.attack.mitm import MITMModule
 from wcarck.modules.attack.eviltwin import EvilTwinModule
 from wcarck.core.module import Module
 from wcarck.core.event_bus import bus
@@ -73,6 +75,10 @@ class JobWorker:
         elif name == "crack.aircrack":
             from wcarck.modules.attack.crack import CrackModule
             return CrackModule()
+        elif name == "attack.pmkid_crack":
+            return PMKIDCrackModule()
+        elif name == "attack.mitm":
+            return MITMModule()
         return None
 
     async def _loop(self):

@@ -70,7 +70,7 @@ export function Topbar() {
   }
 
   return (
-    <header className="relative flex items-center justify-between h-12 px-4 bg-glass-bg backdrop-blur-md border-b border-border-subtle sticky top-0 z-10 flex-shrink-0">
+    <header className="relative flex items-center justify-between h-12 px-4 bg-glass-bg backdrop-blur-md border-b border-border-subtle sticky top-0 z-10 flex-shrink-0 after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-accent/30 after:to-transparent">
       {/* LEFT: Logo + session timer + active project */}
       <div className="flex items-center space-x-4">
         {/* Logo mark - shifted to sidebar when sidebar is expanded */}
@@ -174,7 +174,7 @@ export function Topbar() {
         {/* Error count badge */}
         {!wsConnected ? (
           <AppTooltip content="WebSocket backend is disconnected. UI may be stale. Auto-reconnecting..." side="bottom">
-            <div className="flex items-center gap-1 px-2 py-1 bg-status-error/20 text-status-error rounded border border-status-error/40 text-xs font-bold flex-shrink-0 animate-pulse">
+            <div className="flex items-center gap-1 px-2 py-1 bg-accent/20 text-accent rounded border border-accent/40 text-xs font-bold flex-shrink-0 animate-pulse">
               <AlertTriangle className="w-3 h-3" />
               DISCONNECTED
             </div>

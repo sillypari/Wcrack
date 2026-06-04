@@ -87,6 +87,9 @@ class ScannerModule(Module):
             band = params.get("band", "abg")
             if band != "all":
                 cmd.extend(["--band", band])
+            hop_time = params.get("hop_time")
+            if hop_time:
+                cmd.extend(["--hop-time", str(hop_time)])
                 
         cmd.append(iface)
             
@@ -115,6 +118,7 @@ class ScannerModule(Module):
         try:
             if self._process:
                 await self._process.stop()
+                self._process = None
                 
             # Detect and save PCAP
             import os, shutil, uuid
@@ -130,19 +134,53 @@ class ScannerModule(Module):
                 shutil.move(cap_file, dest_file)
                 
                 # Verify Handshake Status using aircrack-ng
-                from wcarck.utils.pcap import verify_handshake
+                from wcarck.utils.pcap import verify_handshake, parse_eapol_frames
                 status, valid_bssid = await verify_handshake(dest_file)
+
+                eapol = await parse_eapol_frames(dest_file)
                 
+                import hashlib
+                sha256_hash = hashlib.sha256()
+                try:
+                    with open(dest_file, "rb") as f:
+                        for byte_block in iter(lambda: f.read(4096), b""):
+                            sha256_hash.update(byte_block)
+                    sha256_val = sha256_hash.hexdigest()
+                except Exception:
+                    sha256_val = "unknown"
+
                 if status != "Invalid" or True: # we save it anyway for now
                     try:
                         async with SessionLocal() as session:
+                            from sqlalchemy import select
+                            from wcarck.db.models import JobQueue, Scope
+                            job_stmt = select(JobQueue).where(JobQueue.id == int(job_id) if job_id.isdigit() else JobQueue.id == job_id)
+                            job_res = await session.execute(job_stmt)
+                            job = job_res.scalar_one_or_none()
+                            
+                            scope_id = job.scope_id if job else None
+                            project_id = job.project_id if job else None
+                            
+                            if not scope_id:
+                                scope_stmt = select(Scope).where(Scope.active == True)
+                                scope_res = await session.execute(scope_stmt)
+                                scope = scope_res.scalar_one_or_none()
+                                scope_id = scope.id if scope else 1
+
                             cap = Capture(
-                                id=str(uuid.uuid4()),
                                 type="wpa_handshake",
                                 path=dest_file,
+                                sha256=sha256_val,
                                 bssid=valid_bssid if valid_bssid else getattr(self, '_target_bssid', "ANY"),
                                 ssid="Scanner Capture",
                                 status=status,
+                                size_bytes=os.path.getsize(dest_file),
+                                eapolM1=eapol["m1"],
+                                eapolM2=eapol["m2"],
+                                eapolM3=eapol["m3"],
+                                eapolM4=eapol["m4"],
+                                scope_id=scope_id,
+                                project_id=project_id,
                                 created_at=datetime.now(timezone.utc).replace(tzinfo=None)
                             )
                             session.add(cap)
@@ -160,8 +198,6 @@ class ScannerModule(Module):
                     except Exception as e:
                         logger.error(f"Failed to save capture to DB: {e}")
                     
-            bus.publish("module.stopped", {"job_id": job_id, "module": self.name})
-            
             if self._parser_task:
                 self._parser_task.cancel()
                 try:

@@ -108,24 +108,56 @@ class PMKIDModule(Module):
                 await self._process.stop()
                 self._process = None
                 
-            import os, uuid
+            import os, uuid, hashlib
             from datetime import datetime, timezone
             from wcarck.db.session import SessionLocal
-            from wcarck.db.models import Capture
+            from wcarck.db.models import Capture, JobQueue, Scope
+            from sqlalchemy import select
             
             out_pcapng = f"/var/lib/wcarck/captures/pmkid_{job_id}.pcapng"
             if os.path.exists(out_pcapng):
-                from wcarck.utils.pcap import verify_handshake
+                from wcarck.utils.pcap import verify_handshake, parse_eapol_frames
                 status, valid_bssid = await verify_handshake(out_pcapng)
+                eapol = await parse_eapol_frames(out_pcapng)
+                
+                sha256_hash = hashlib.sha256()
+                try:
+                    with open(out_pcapng, "rb") as f:
+                        for byte_block in iter(lambda: f.read(4096), b""):
+                            sha256_hash.update(byte_block)
+                    sha256_val = sha256_hash.hexdigest()
+                except Exception:
+                    sha256_val = "unknown"
+                    
                 try:
                     async with SessionLocal() as session:
+                        job_stmt = select(JobQueue).where(JobQueue.id == int(job_id) if job_id.isdigit() else JobQueue.id == job_id)
+                        job_res = await session.execute(job_stmt)
+                        job = job_res.scalar_one_or_none()
+                        
+                        scope_id = job.scope_id if job else None
+                        project_id = job.project_id if job else None
+                        
+                        if not scope_id:
+                            scope_stmt = select(Scope).where(Scope.active == True)
+                            scope_res = await session.execute(scope_stmt)
+                            scope = scope_res.scalar_one_or_none()
+                            scope_id = scope.id if scope else 1
+                            
                         cap = Capture(
-                            id=str(uuid.uuid4()),
                             type="pmkid",
                             path=out_pcapng,
+                            sha256=sha256_val,
                             bssid=valid_bssid if valid_bssid else "ANY",
                             ssid="PMKID Capture",
                             status=status,
+                            size_bytes=os.path.getsize(out_pcapng),
+                            eapolM1=eapol["m1"],
+                            eapolM2=eapol["m2"],
+                            eapolM3=eapol["m3"],
+                            eapolM4=eapol["m4"],
+                            scope_id=scope_id,
+                            project_id=project_id,
                             created_at=datetime.now(timezone.utc).replace(tzinfo=None)
                         )
                         session.add(cap)
