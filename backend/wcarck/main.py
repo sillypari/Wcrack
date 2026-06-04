@@ -8,6 +8,7 @@ from wcarck.api.captures import router as captures_router
 from wcarck.api.credentials import router as credentials_router
 from wcarck.api.report import router as report_router
 from wcarck.api.projects import router as projects_router
+from wcarck.api.wordlists import router as wordlists_router
 from wcarck.db.session import init_db, run_wal_checkpoint_task
 from wcarck.db.listener import db_listener
 from wcarck.orchestration.leases import RadioLeaseManager
@@ -59,20 +60,10 @@ async def lifespan(app: FastAPI):
     
     await log_writer.start("system", {})
     await job_worker.start()
-    
-    # Start simulator if Windows or ENV flag set
-    is_simulation_mode = (os.name == 'nt' or os.environ.get("WCARCK_SIMULATE") == '1')
-    if is_simulation_mode:
-        from wcarck.core.simulator import simulator
-        simulator.start()
-        logger.info("Simulator activated for development/Windows environment")
         
     yield
+
     # Shutdown
-    if is_simulation_mode:
-        from wcarck.core.simulator import simulator
-        await simulator.stop()
-        
     await db_listener.stop()
     await sys_orchestrator.stop()
     await watchdog.stop()
@@ -105,21 +96,27 @@ app.include_router(captures_router)
 app.include_router(credentials_router)
 app.include_router(report_router)
 app.include_router(projects_router)
+app.include_router(wordlists_router)
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
 
-@app.get("/api/simulator/status")
-async def get_simulator_status():
-    from wcarck.core.simulator import simulator
-    return {"status": "running" if simulator._running else "stopped"}
-
-@app.post("/api/simulator/toggle")
-async def toggle_simulator():
-    from wcarck.core.simulator import simulator
-    if simulator._running:
-        await simulator.stop()
-    else:
-        simulator.start()
-    return {"status": "running" if simulator._running else "stopped"}
+# Serve Frontend SPA
+frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+if os.path.exists(frontend_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Serve static files if they exist in dist
+        file_path = os.path.join(frontend_path, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Otherwise fallback to index.html for React Router
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+else:
+    logger.warning(f"Frontend dist not found at {frontend_path}. API running in headless mode.")

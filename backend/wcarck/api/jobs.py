@@ -27,7 +27,7 @@ class JobRes(BaseModel):
 @router.post("/start", response_model=JobRes)
 async def start_job(req: JobCreateReq, db: AsyncSession = Depends(get_db)):
     # Basic validation
-    valid_modules = ["recon.scanner", "attack.deauth", "attack.pmkid", "attack.eviltwin", "crack.hashcat"]
+    valid_modules = ["recon.scanner", "attack.deauth", "attack.pmkid", "attack.eviltwin", "crack.aircrack"]
     if req.module_name not in valid_modules:
         raise HTTPException(status_code=400, detail="Invalid module_name")
         

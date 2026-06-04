@@ -15,6 +15,7 @@ class CaptureRes(BaseModel):
     path: str
     bssid: Optional[str]
     ssid: Optional[str]
+    status: str
     size_bytes: Optional[int]
     created_at: datetime
     

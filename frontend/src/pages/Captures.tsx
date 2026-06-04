@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Download, RefreshCw, Database, Check, Hammer } from 'lucide-react'
+import { Download, RefreshCw, Database, Check, Hammer, RotateCw } from 'lucide-react'
 import { useWcarckStore } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { useNavigate } from 'react-router-dom'
@@ -47,8 +47,19 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export function Captures() {
-  const { captures, startJob } = useWcarckStore()
+  const { captures, startJob, fetchInitialState } = useWcarckStore()
   const navigate = useNavigate()
+  const [loading, setLoading] = React.useState(false)
+
+  const refreshCaptures = async () => {
+    setLoading(true)
+    await fetchInitialState()
+    setLoading(false)
+  }
+
+  React.useEffect(() => {
+    refreshCaptures()
+  }, [])
 
   const validCount = captures.filter(c => c.status === 'Valid').length
   const partialCount = captures.filter(c => c.status === 'Partial').length
@@ -166,7 +177,7 @@ export function Captures() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => startJob('deauth', { bssid: cap.bssid })}
+                        onClick={() => startJob('deauth', { bssid: cap.bssid, iface: 'auto' })}
                         className="h-7 text-[11px] bg-bg-active border-border-subtle hover:bg-bg-hover"
                       >
                         <RefreshCw className="w-3 h-3 mr-1" />Re-capture
@@ -176,6 +187,7 @@ export function Captures() {
                       variant="outline"
                       size="sm"
                       title="Download .22000 file"
+                      onClick={() => window.open(`http://127.0.0.1:8000/api/captures/${cap.id}/download`, '_blank')}
                       className="h-7 w-7 p-0 bg-bg-active border-border-subtle hover:bg-bg-hover"
                     >
                       <Download className="w-3 h-3" />

@@ -46,3 +46,6 @@ backend/logs/
 
 # Capture staging (runtime, not in repo)
 /tmp/wcarck_captures/
+
+# tools for refrence 
+.ESTBTOOLs

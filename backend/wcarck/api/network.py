@@ -13,7 +13,11 @@ class ApRes(BaseModel):
     ssid: Optional[str]
     channel: Optional[int]
     encryption: Optional[str]
+    cipher: Optional[str]
+    auth: Optional[str]
     signal_dbm: Optional[int]
+    beacons: Optional[int]
+    data: Optional[int]
     
     class Config:
         from_attributes = True
@@ -22,6 +26,7 @@ class ClientRes(BaseModel):
     mac: str
     bssid: str
     signal_dbm: Optional[int]
+    packets: Optional[int]
     
     class Config:
         from_attributes = True

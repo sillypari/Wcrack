@@ -14,9 +14,11 @@ import {
 export function Logs() {
   const { logs } = useWcarckStore()
   
+  const [filterDebug, setFilterDebug] = React.useState(false)
   const [filterInfo, setFilterInfo] = React.useState(true)
   const [filterWarn, setFilterWarn] = React.useState(true)
   const [filterError, setFilterError] = React.useState(true)
+  const [filterChannel, setFilterChannel] = React.useState<string>('All')
 
   const clearLogs = () => {
     useWcarckStore.setState({ logs: [] })
@@ -30,9 +32,11 @@ export function Logs() {
   }
 
   const filteredLogs = logs.filter(l => {
+    if (l.level === 'DEBUG' && !filterDebug) return false
     if (l.level === 'INFO' && !filterInfo) return false
     if (l.level === 'WARN' && !filterWarn) return false
     if ((l.level === 'ERROR' || l.level === 'CRITICAL') && !filterError) return false
+    if (filterChannel !== 'All' && l.channel !== filterChannel) return false
     return true
   })
 
@@ -79,28 +83,22 @@ export function Logs() {
                   Filter Levels
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48 bg-bg-elevated border-border-subtle text-text-primary" align="end">
-                <DropdownMenuCheckboxItem
-                  checked={filterInfo}
-                  onCheckedChange={setFilterInfo}
-                  className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer"
-                >
-                  INFO
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={filterWarn}
-                  onCheckedChange={setFilterWarn}
-                  className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer"
-                >
-                  WARN
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={filterError}
-                  onCheckedChange={setFilterError}
-                  className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer"
-                >
-                  ERROR / CRITICAL
-                </DropdownMenuCheckboxItem>
+              <DropdownMenuContent className="w-56 bg-bg-elevated border-border-subtle text-text-primary" align="end">
+                <DropdownMenuCheckboxItem checked={filterDebug} onCheckedChange={setFilterDebug} className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer">DEBUG</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={filterInfo} onCheckedChange={setFilterInfo} className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer">INFO</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={filterWarn} onCheckedChange={setFilterWarn} className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer">WARN</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={filterError} onCheckedChange={setFilterError} className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer">ERROR / CRITICAL</DropdownMenuCheckboxItem>
+                <div className="border-t border-border-subtle my-1" />
+                {['All', 'RF', 'System', 'Process', 'DB'].map(ch => (
+                  <DropdownMenuCheckboxItem
+                    key={ch}
+                    checked={filterChannel === ch}
+                    onCheckedChange={() => setFilterChannel(ch)}
+                    className="hover:bg-bg-hover focus:bg-bg-hover cursor-pointer"
+                  >
+                    Channel: {ch}
+                  </DropdownMenuCheckboxItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -160,7 +158,7 @@ export function Logs() {
                   <div key={i} className="flex items-start py-3 px-4 hover:bg-bg-hover transition-colors font-mono text-xs">
                     {/* Timestamp */}
                     <div className="w-[160px] flex-shrink-0 text-text-disabled text-[11px] pt-0.5">
-                      {new Date(log.timestamp).toISOString().replace('T', ' ').substring(0, 19)}
+                      {new Date(typeof log.timestamp === 'number' ? log.timestamp : Number(log.timestamp)).toISOString().replace('T', ' ').substring(0, 19)}
                     </div>
 
                     {/* Level */}

@@ -50,7 +50,7 @@ To test Wcrack's audit tools end-to-end without physical hardware or root access
 ### 1. Toggle Simulator Mode
 - In the top-right corner of the top navigation bar, locate the **CPU Icon** (`Simulation Mode`).
 - **Click the CPU icon** to activate/deactivate simulation mode. When active, the icon pulses green and a notification confirms `Simulation mode activated`.
-- When active, the simulator injects a virtual monitor-mode interface (`wlan_mon`) and handles mock hardware events.
+- When active, the simulator instantly injects virtual mock adapters (`wlan_mon` for scanning, and `wlan_ap` for Evil Twin) into your hardware list. These mock adapters will immediately appear on your Dashboard and Adapters page, making them selectable for simulated attacks.
 
 ### 2. Create and Scope a Project
 - Navigate to the **Projects** page (from the left sidebar).

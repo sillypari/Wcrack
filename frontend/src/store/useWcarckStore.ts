@@ -50,6 +50,18 @@ export type Job = {
   startedAt: number
   framesSent: number
   packetsPerSec: number
+  speed?: string
+  eta?: string
+  status_message?: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: any
+}
+
+export type Wordlist = {
+  name: string
+  path: string
+  size: number
+  type: string
 }
 
 export type Capture = {
@@ -127,6 +139,7 @@ interface SystemState {
   activeJobs: Job[]
   captures: Capture[]
   credentials: Credential[]
+  wordlists: Wordlist[]
   logs: LogEntry[]
   sessionStartedAt: number | null
   activeScopeId: number | null
@@ -150,7 +163,9 @@ interface WcarckStore extends SystemState {
   toggleSidebar: () => void
   toggleFocusMode: () => void
   toggleAudio: () => void
+  clearLogs: () => void
   fetchInitialState: () => Promise<void>
+  fetchWordlists: () => Promise<void>
   fetchProjects: () => Promise<void>
   createProject: (name: string, client?: string, notes?: string) => Promise<void>
   activateProject: (id: number) => Promise<void>
@@ -174,6 +189,7 @@ export const useWcarckStore = create<WcarckStore>()(
         activeJobs: [],
         captures: [],
         credentials: [],
+        wordlists: [],
         logs: [],
         sessionStartedAt: null,
         activeScopeId: null,
@@ -213,18 +229,20 @@ export const useWcarckStore = create<WcarckStore>()(
             uiState: { ...state.uiState, audioEnabled: !state.uiState.audioEnabled },
           })),
 
+        clearLogs: () => set({ logs: [] }),
+
         fetchInitialState: async () => {
           try {
             await get().fetchProjects()
             await get().fetchSimulatorStatus()
             
             const res = await Promise.all([
-              fetch('http://127.0.0.1:8080/api/adapters').then(r => r.ok ? r.json() : []),
-              fetch('http://127.0.0.1:8080/api/networks/aps').then(r => r.ok ? r.json() : []),
-              fetch('http://127.0.0.1:8080/api/networks/clients').then(r => r.ok ? r.json() : []),
-              fetch('http://127.0.0.1:8080/api/captures').then(r => r.ok ? r.json() : []),
-              fetch('http://127.0.0.1:8080/api/credentials').then(r => r.ok ? r.json() : []),
-              fetch('http://127.0.0.1:8080/api/jobs').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/adapters').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/networks/aps').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/networks/clients').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/captures').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/credentials').then(r => r.ok ? r.json() : []),
+              fetch('http://127.0.0.1:8000/api/jobs').then(r => r.ok ? r.json() : []),
             ])
             
             const [adaptersList, networksList, clientsList, captures, credentials, activeJobs] = res
@@ -258,7 +276,7 @@ export const useWcarckStore = create<WcarckStore>()(
         },
 
         connectWebSocket: () => {
-          const ws = new WebSocket('ws://127.0.0.1:8080/ws/events')
+          const ws = new WebSocket('ws://127.0.0.1:8000/ws/events')
           
           ws.onopen = () => {
             set({ wsConnected: true, wsReconnectAttempts: 0, sessionStartedAt: Date.now() })
@@ -313,12 +331,12 @@ export const useWcarckStore = create<WcarckStore>()(
               newState.clients = cliMap
               break
             }
-            case 'adapter.state_changed': {
-              const adapters = [...state.adapters]
-              const idx = adapters.findIndex(a => a.iface === event.payload.iface)
-              if (idx >= 0) adapters[idx] = { ...adapters[idx], ...event.payload }
-              else adapters.push(event.payload)
-              newState.adapters = adapters
+            case 'adapter.state_changed':
+            case 'adapter.mode_changed':
+            case 'adapter.monitor_started':
+            case 'adapter.monitor_stopped': {
+              // Re-fetch adapter list from API for accurate state
+              setTimeout(() => get().fetchInitialState(), 1500)
               break
             }
             case 'module.started': {
@@ -392,12 +410,46 @@ export const useWcarckStore = create<WcarckStore>()(
               }, 50)
               break
             }
+            case 'job.progress': {
+              // Hashcat/aircrack progress: {job_id, progress, speed, eta, status_message}
+              const jobs = [...state.activeJobs]
+              const jobId = String(event.payload?.job_id ?? event.job_id ?? '')
+              const idx = jobs.findIndex(j => j.id === jobId)
+              if (idx >= 0) {
+                jobs[idx] = {
+                  ...jobs[idx],
+                  progress: event.payload?.progress ?? jobs[idx].progress,
+                  speed: event.payload?.speed ?? jobs[idx].speed,
+                  eta: event.payload?.eta ?? jobs[idx].eta,
+                  status_message: event.payload?.status_message ?? jobs[idx].status_message,
+                }
+              }
+              newState.activeJobs = jobs
+              break
+            }
           }
 
-          // All events that have a message/level might be logs
-          if (event.level && event.message) {
-             const logs = [event as LogEntry, ...state.logs].slice(0, MAX_LOGS)
-             newState.logs = logs
+          // The backend hub.py already sends a fully normalized LogEntry.
+          // Fields: id, seq, timestamp, level, channel, event_type, message, job_id, mac_address, adapter_iface, payload, stack_trace, session_id
+          // We just store it directly — no re-building needed.
+          if (event.id && event.message) {
+            const logEntry: LogEntry = {
+              id: event.id,
+              seq: event.seq,
+              timestamp: event.timestamp || Date.now(),
+              level: (event.level || 'INFO') as 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL',
+              channel: (event.channel || 'System') as 'RF' | 'System' | 'DB' | 'Portal' | 'Process',
+              event_type: event.event_type || event.topic || '',
+              message: event.message,
+              job_id: event.job_id || null,
+              mac_address: event.mac_address || null,
+              adapter_iface: event.adapter_iface || null,
+              payload: event.payload || {},
+              stack_trace: event.stack_trace || null,
+              session_id: event.session_id || 'live'
+            }
+            const logs = [logEntry, ...state.logs].slice(0, MAX_LOGS)
+            newState.logs = logs
           }
 
           return newState
@@ -431,11 +483,11 @@ export const useWcarckStore = create<WcarckStore>()(
               backendModuleName = 'attack.eviltwin'
               handlerName = 'start_eviltwin'
             } else if (moduleName === 'crack') {
-              backendModuleName = 'crack.hashcat'
+              backendModuleName = 'crack.aircrack'
               handlerName = 'start_crack'
             }
 
-            const res = await fetch('http://127.0.0.1:8080/api/jobs/start', {
+            const res = await fetch('http://127.0.0.1:8000/api/jobs/start', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
@@ -455,7 +507,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         stopJob: async (jobId) => {
           try {
-            const res = await fetch(`http://127.0.0.1:8080/api/jobs/${jobId}/stop`, { method: 'POST' })
+            const res = await fetch(`http://127.0.0.1:8000/api/jobs/${jobId}/stop`, { method: 'POST' })
             if (!res.ok) throw new Error(await res.text())
             // No confirm modal or success toast for stop per D88/spec, UI updates via WS
           } catch (e) {
@@ -464,9 +516,18 @@ export const useWcarckStore = create<WcarckStore>()(
           }
         },
 
+        fetchWordlists: async () => {
+          try {
+            const res = await fetch('http://127.0.0.1:8000/api/wordlists')
+            if (res.ok) set({ wordlists: await res.json() })
+          } catch (e) {
+            console.error('Failed to fetch wordlists', e)
+          }
+        },
+        
         fetchProjects: async () => {
           try {
-            const res = await fetch('http://127.0.0.1:8080/api/projects')
+            const res = await fetch('http://127.0.0.1:8000/api/projects')
             if (res.ok) {
               const projects = await res.json()
               const activeProj = projects.find((p: Project) => p.active)
@@ -482,7 +543,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         createProject: async (name, client, notes) => {
           try {
-            const res = await fetch('http://127.0.0.1:8080/api/projects', {
+            const res = await fetch('http://127.0.0.1:8000/api/projects', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name, client, notes })
@@ -502,7 +563,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         activateProject: async (id) => {
           try {
-            const res = await fetch(`http://127.0.0.1:8080/api/projects/${id}/activate`, {
+            const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}/activate`, {
               method: 'POST'
             })
             if (!res.ok) {
@@ -520,7 +581,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         deleteProject: async (id) => {
           try {
-            const res = await fetch(`http://127.0.0.1:8080/api/projects/${id}`, {
+            const res = await fetch(`http://127.0.0.1:8000/api/projects/${id}`, {
               method: 'DELETE'
             })
             if (!res.ok) {
@@ -541,7 +602,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         fetchSimulatorStatus: async () => {
           try {
-            const res = await fetch('http://127.0.0.1:8080/api/simulator/status')
+            const res = await fetch('http://127.0.0.1:8000/api/simulator/status')
             if (res.ok) {
               const data = await res.json()
               set({ simulatorRunning: data.status === 'running' })
@@ -553,7 +614,7 @@ export const useWcarckStore = create<WcarckStore>()(
 
         toggleSimulator: async () => {
           try {
-            const res = await fetch('http://127.0.0.1:8080/api/simulator/toggle', { method: 'POST' })
+            const res = await fetch('http://127.0.0.1:8000/api/simulator/toggle', { method: 'POST' })
             if (res.ok) {
               const data = await res.json()
               const isRunning = data.status === 'running'

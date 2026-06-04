@@ -12,6 +12,7 @@ class EventBus:
     def __init__(self, history_size: int = 100000):
         self._subscribers: set[asyncio.Queue] = set()
         self._history: deque = deque(maxlen=history_size)
+        self._dlq: deque = deque(maxlen=1000)  # Dead Letter Queue for dropped events
         self._sequence_id: int = 0
 
     def publish(self, topic: str, payload: dict[str, Any] | None = None) -> None:
@@ -31,13 +32,19 @@ class EventBus:
         # Fan-out to all subscribers
         # We don't want to block the publisher if a subscriber is slow.
         # Queues are created with maxsize to prevent infinite growth.
+        stale_queues = []
         for queue in list(self._subscribers):
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
                 # If a subscriber's queue is full, they are lagging too much.
-                # Drop the event for them. They can recover via get_history().
-                pass
+                # Drop the event for them and push to DLQ
+                self._dlq.append(event)
+                stale_queues.append(queue)
+                
+        # Evict stale subscribers to prevent memory leaks from abandoned generators
+        for queue in stale_queues:
+            self._subscribers.discard(queue)
 
     async def subscribe(self, max_queue_size: int = 500) -> AsyncGenerator[dict[str, Any], None]:
         """

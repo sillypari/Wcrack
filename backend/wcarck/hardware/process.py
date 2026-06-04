@@ -11,9 +11,16 @@ class ManagedProcess:
     preventing orphaned airodump-ng/scapy zombie processes, and avoiding
     GIL pipe deadlocks.
     """
-    PRIVILEGED_BINS = {"iw", "ip", "macchanger", "hostapd", "dnsmasq", "aircrack-ng", "aireplay-ng", "hcxdumptool", "hcxhashtool", "airodump-ng"}
+    PRIVILEGED_BINS = frozenset({"iw", "ip", "macchanger", "hostapd", "dnsmasq", "aircrack-ng", "aireplay-ng", "hcxdumptool", "hcxhashtool", "airodump-ng", "airmon-ng", "mdk4"})
 
     def __init__(self, cmd: List[str], job_id: str, track_stdout: bool = True):
+        import shutil
+        self.cmd = []
+        for bin_name in cmd:
+            base = bin_name.split("/")[-1]
+            if base in self.PRIVILEGED_BINS and shutil.which(base) is None:
+                raise FileNotFoundError(f"Privileged binary '{base}' not found in PATH.")
+        
         # Auto-prepend sudo if needed
         if cmd and cmd[0] in self.PRIVILEGED_BINS and os.name == 'posix':
             self.cmd = ["sudo", "-n"] + cmd
@@ -36,12 +43,25 @@ class ManagedProcess:
         elif os.name == 'nt':
             kwargs['creationflags'] = getattr(asyncio.subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
 
-        self._process = await asyncio.create_subprocess_exec(
-            *self.cmd,
-            stdout=asyncio.subprocess.PIPE if self.track_stdout else asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-            **kwargs
-        )
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *self.cmd,
+                stdout=asyncio.subprocess.PIPE if self.track_stdout else asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+                **kwargs
+            )
+        except OSError as e:
+            if e.errno == 16: # Device or resource busy
+                bus.publish("process.error", {"job_id": self.job_id, "error": "Device or resource busy. Retrying..."})
+                await asyncio.sleep(1.0)
+                self._process = await asyncio.create_subprocess_exec(
+                    *self.cmd,
+                    stdout=asyncio.subprocess.PIPE if self.track_stdout else asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                    **kwargs
+                )
+            else:
+                raise
 
         bus.publish("process.started", {
             "job_id": self.job_id,
@@ -95,7 +115,7 @@ class ManagedProcess:
                 try:
                     parent = psutil.Process(pid)
                     children = parent.children(recursive=True)
-                except psutil.NoSuchProcess:
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     children = []
                     parent = None
 
@@ -109,12 +129,12 @@ class ManagedProcess:
                     for child in children:
                         try:
                             child.terminate()
-                        except psutil.NoSuchProcess:
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
                     if parent:
                         try:
                             parent.terminate()
-                        except psutil.NoSuchProcess:
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
 
                 # Wait with timeout
@@ -124,7 +144,7 @@ class ManagedProcess:
                     for p in alive:
                         try:
                             p.kill()
-                        except psutil.NoSuchProcess:
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
 
             except ImportError:

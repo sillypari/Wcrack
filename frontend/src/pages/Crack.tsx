@@ -7,7 +7,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 export function Crack() {
-  const { captures, activeJobs, startJob, stopJob } = useWcarckStore()
+  const { captures, activeJobs, startJob, stopJob, wordlists, fetchWordlists } = useWcarckStore()
+  
+  React.useEffect(() => {
+    fetchWordlists()
+  }, [fetchWordlists])
   const location = useLocation()
   const navigate = useNavigate()
   
@@ -15,7 +19,13 @@ export function Crack() {
   const initialCaptureId = location.state?.captureId || ''
 
   const [selectedCaptureId, setSelectedCaptureId] = React.useState<string>(initialCaptureId)
-  const [wordlist, setWordlist] = React.useState('rockyou.txt')
+  const [wordlist, setWordlist] = React.useState('')
+  // Auto-select first wordlist once loaded
+  React.useEffect(() => {
+    if (wordlists.length > 0 && !wordlist) {
+      setWordlist(wordlists[0].path)
+    }
+  }, [wordlists, wordlist])
   
   const crackJob = activeJobs.find(j => j.type === 'crack')
 
@@ -74,6 +84,9 @@ export function Crack() {
               {captures.length === 0 && (
                 <p className="text-[10px] text-status-warning mt-1">No captures available. Capture a handshake first.</p>
               )}
+              {wordlists.length === 0 && wordlist !== 'custom' && (
+                <p className="text-[10px] text-status-warning mt-1">No wordlists found. Place .txt files in the wordlists/ directory or upload below.</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -84,17 +97,45 @@ export function Crack() {
                 onChange={e => setWordlist(e.target.value)}
                 disabled={!!crackJob}
               >
-                <option value="rockyou.txt">rockyou.txt (14,344,392 words)</option>
-                <option value="top1000.txt">top1000.txt (1,000 words - fast)</option>
-                <option value="custom">Custom wordlist...</option>
+                {wordlists.map(w => (
+                  <option key={w.name} value={w.path}>{w.name} ({(w.size / 1024 / 1024).toFixed(2)} MB)</option>
+                ))}
+                <option value="custom">Upload Custom Wordlist...</option>
               </select>
             </div>
 
             {wordlist === 'custom' && (
               <div className="border border-dashed border-border-default rounded-md p-6 text-center bg-bg-surface">
                 <Upload className="w-6 h-6 mx-auto text-text-disabled mb-2" />
-                <p className="text-xs text-text-primary mb-1">Drag and drop your wordlist (.txt)</p>
-                <Button variant="outline" size="sm" className="mt-3 text-xs h-7" disabled={!!crackJob}>Browse Files</Button>
+                <p className="text-xs text-text-primary mb-1">Upload a wordlist (.txt or .gz)</p>
+                <input
+                  type="file"
+                  accept=".txt,.gz"
+                  id="wordlist-upload"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const fd = new FormData()
+                    fd.append('file', file)
+                    try {
+                      const res = await fetch('http://127.0.0.1:8000/api/wordlists/upload', { method: 'POST', body: fd })
+                      if (res.ok) {
+                        const data = await res.json()
+                        fetchWordlists()
+                        setWordlist(data.wordlist.path)
+                      }
+                    } catch {}
+                  }}
+                  disabled={!!crackJob}
+                />
+                <Button
+                  variant="outline" size="sm" className="mt-3 text-xs h-7"
+                  disabled={!!crackJob}
+                  onClick={() => document.getElementById('wordlist-upload')?.click()}
+                >
+                  Browse Files
+                </Button>
               </div>
             )}
           </div>
@@ -152,16 +193,16 @@ export function Crack() {
             <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
               <div className="bg-bg-surface p-3 rounded border border-border-subtle">
                 <div className="text-[9px] text-text-disabled uppercase tracking-wider mb-1">Speed</div>
-                <div className="font-mono text-xs font-semibold text-text-primary">{crackJob ? "42.1 kH/s" : "0 H/s"}</div>
+                <div className="font-mono text-xs font-semibold text-text-primary">{crackJob ? (crackJob.speed || "Starting...") : "0 H/s"}</div>
               </div>
               <div className="bg-bg-surface p-3 rounded border border-border-subtle">
                 <div className="text-[9px] text-text-disabled uppercase tracking-wider mb-1">Est. Time Remaining</div>
-                <div className="font-mono text-xs font-semibold text-text-primary">{crackJob ? "2m 14s" : "--:--"}</div>
+                <div className="font-mono text-xs font-semibold text-text-primary">{crackJob ? (crackJob.eta || "Calculating...") : "--:--"}</div>
               </div>
               <div className="col-span-2 bg-bg-surface p-3 rounded border border-border-subtle">
                 <div className="text-[9px] text-text-disabled uppercase tracking-wider mb-1">Engine Status</div>
                 <div className="font-mono text-xs font-semibold text-text-primary truncate">
-                  {crackJob ? "Running dictionary attack (Wordlist mode)" : "Idle"}
+                  {crackJob ? (crackJob.status_message || "Running dictionary attack (Wordlist mode)") : "Idle"}
                 </div>
               </div>
             </div>

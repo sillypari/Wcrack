@@ -7,22 +7,46 @@ import { cn } from '@/lib/utils'
 import { AppTooltip } from '@/components/ui/app-tooltip'
 
 export function Adapters() {
-  const { adapters } = useWcarckStore()
+  const { adapters, fetchInitialState } = useWcarckStore()
   
   // D92: Adapter transition state
   const [transitioning, setTransitioning] = React.useState<Record<string, boolean>>({})
 
-  const fetchAdapters = () => {
-    toast.success("Hardware scan requested")
+  const fetchAdapters = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/adapters/refresh', { method: 'POST' })
+      if (res.ok) {
+        toast.success("Hardware scan triggered — refreshing in 2s...")
+        setTimeout(() => fetchInitialState(), 2000)
+      } else {
+        toast.error("Refresh failed: " + res.statusText)
+      }
+    } catch (e) {
+      toast.error("Cannot reach backend")
+    }
   }
 
-  const toggleMode = (iface: string) => {
+  const toggleMode = async (iface: string, currentMode: string) => {
     setTransitioning(prev => ({ ...prev, [iface]: true }))
-    // Simulate backend delay (D92)
-    setTimeout(() => {
+    try {
+      const newMode = currentMode === 'monitor' ? 'managed' : 'monitor'
+      const res = await fetch(`http://127.0.0.1:8000/api/adapters/${iface}/mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: newMode })
+      })
+      if (res.ok) {
+        toast.success(`${iface} switching to ${newMode} mode...`)
+        setTimeout(() => fetchInitialState(), 2000)
+      } else {
+        const err = await res.text()
+        toast.error(`Failed to switch mode: ${err}`)
+      }
+    } catch (e) {
+      toast.error("Cannot reach backend")
+    } finally {
       setTransitioning(prev => ({ ...prev, [iface]: false }))
-      toast.success(`${iface} mode switched`)
-    }, 2000)
+    }
   }
 
   const totalCount = adapters.length
@@ -161,7 +185,7 @@ export function Adapters() {
                         size="sm"
                         variant="outline"
                         disabled={isTrans}
-                        onClick={() => toggleMode(adapter.iface)}
+                        onClick={() => toggleMode(adapter.iface, adapter.mode)}
                         className={cn(
                           "h-7 text-[10px] px-2",
                           isMon 

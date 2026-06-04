@@ -17,6 +17,21 @@ class SystemOrchestrator:
         if os.name == 'posix':
             self._watch_dbus = True
             self._sleep_task = asyncio.create_task(self._dbus_sleep_listener())
+            
+            # Gap 57: Global teardown signal handler
+            import signal
+            loop = asyncio.get_running_loop()
+            try:
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.add_signal_handler(sig, lambda: asyncio.create_task(self._handle_signal()))
+            except NotImplementedError:
+                # add_signal_handler may not be implemented on some event loops (e.g., Windows ProactorEventLoop)
+                pass
+
+    async def _handle_signal(self):
+        logger.info("Received termination signal, shutting down system gracefully...")
+        bus.publish("system.shutdown", {"hint": "SIGINT/SIGTERM received"})
+        await self.stop()
 
     async def stop(self):
         self._watch_dbus = False

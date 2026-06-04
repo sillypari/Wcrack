@@ -72,10 +72,15 @@ class Network(Base):
     channel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     band: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     encryption: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cipher: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    auth: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     first_seen: Mapped[datetime] = mapped_column(DateTime)
     last_seen: Mapped[datetime] = mapped_column(DateTime)
     max_rssi: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    beacons: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    data: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     vendor: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    wps: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
 class Client(Base):
     __tablename__ = "clients"
@@ -87,6 +92,7 @@ class Client(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime)
     last_seen: Mapped[datetime] = mapped_column(DateTime)
     max_rssi: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    packets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     probed_ssids: Mapped[list] = mapped_column(JSON, default=list)
 
 class JobQueue(Base):
@@ -133,6 +139,7 @@ class Capture(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     hashcat_format: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="Invalid")
     exported: Mapped[bool] = mapped_column(Boolean, default=False)
     scope_id: Mapped[int] = mapped_column(ForeignKey("scopes.id"))
     project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True)

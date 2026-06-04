@@ -25,7 +25,7 @@ class RadioLeaseManager:
     Lock granularity is (resource_type, resource_id).
     """
 
-    def __init__(self, ttl_seconds: float = 10.0):
+    def __init__(self, ttl_seconds: float = 30.0):
         self.ttl_seconds = ttl_seconds
         self._leases: Dict[str, Lease] = {}  # key: resource_id
         self._adapter_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -99,6 +99,12 @@ class RadioLeaseManager:
                 lease_type=lease_type,
                 expires_at=time.monotonic() + self.ttl_seconds
             )
+            from wcarck.core.event_bus import bus
+            bus.publish("lease.acquired", {
+                "job_id": job_id,
+                "resource_id": resource_id,
+                "lease_type": lease_type
+            })
 
     async def renew(self, job_id: str, resource_id: str) -> None:
         """Renew a lease to prevent expiration."""
@@ -113,3 +119,8 @@ class RadioLeaseManager:
             existing = self._leases.get(resource_id)
             if existing and existing.job_id == job_id:
                 del self._leases[resource_id]
+                from wcarck.core.event_bus import bus
+                bus.publish("lease.released", {
+                    "job_id": job_id,
+                    "resource_id": resource_id
+                })
