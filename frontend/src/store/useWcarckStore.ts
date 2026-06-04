@@ -50,6 +50,7 @@ export type Job = {
   startedAt: number
   framesSent: number
   packetsPerSec: number
+  acks?: number
   speed?: string
   eta?: string
   status_message?: string
@@ -76,6 +77,8 @@ export type Capture = {
   eapolM2: boolean
   eapolM3: boolean
   eapolM4: boolean
+  sizeBytes?: number
+  sha256?: string
 }
 
 export type Credential = {
@@ -170,7 +173,10 @@ interface WcarckStore extends SystemState {
   createProject: (name: string, client?: string, notes?: string) => Promise<void>
   activateProject: (id: number) => Promise<void>
   deleteProject: (id: number) => Promise<void>
-
+  checkKill: () => Promise<void>
+  restoreNetwork: () => Promise<void>
+  checkKillOutput: string | null
+  restoreOutput: string | null
 }
 
 const MAX_LOGS = 200
@@ -194,6 +200,8 @@ export const useWcarckStore = create<WcarckStore>()(
         activeScopeId: null,
         projects: [],
         activeProjectId: null,
+        checkKillOutput: null,
+        restoreOutput: null,
 
         uiState: {
           sidebarPinned: false,
@@ -295,6 +303,8 @@ export const useWcarckStore = create<WcarckStore>()(
               eapolM2: c.eapolM2 || false,
               eapolM3: c.eapolM3 || false,
               eapolM4: c.eapolM4 || false,
+              sizeBytes: c.size_bytes || 0,
+              sha256: c.sha256 || 'unknown',
             }))
             
             set({ adapters, networks, clients, captures: normCaptures, credentials: normCredentials, activeJobs })
@@ -574,9 +584,12 @@ export const useWcarckStore = create<WcarckStore>()(
 
         stopJob: async (jobId) => {
           try {
-            const res = await fetch(`http://127.0.0.1:8000/api/jobs/${jobId}/stop`, { method: 'POST' })
+            // Backend expects integer job IDs — coerce from string if needed
+            const numericId = Number(jobId)
+            if (isNaN(numericId)) throw new Error(`Invalid job ID: ${jobId}`)
+            const res = await fetch(`http://127.0.0.1:8000/api/jobs/${numericId}/stop`, { method: 'POST' })
             if (!res.ok) throw new Error(await res.text())
-            // No confirm modal or success toast for stop per D88/spec, UI updates via WS
+            // UI will update via WS module.stopped event
           } catch (e) {
              const err = e as Error
              toast.error(`Failed to stop job: ${err.message}`)
@@ -664,6 +677,44 @@ export const useWcarckStore = create<WcarckStore>()(
           } catch (e) {
             const err = e as Error
             toast.error(`Failed to delete project: ${err.message}`)
+          }
+        },
+
+        checkKill: async () => {
+          try {
+            const res = await fetch('http://127.0.0.1:8000/api/adapters/check-kill', {
+              method: 'POST'
+            })
+            if (!res.ok) {
+              const err = await res.text()
+              throw new Error(err || "Failed to execute check kill")
+            }
+            const data = await res.json()
+            set({ checkKillOutput: data.output || "No output returned from check-kill", restoreOutput: null })
+            toast.success("Stopped conflicting processes successfully")
+          } catch (e) {
+            const err = e as Error
+            toast.error(`Failed to check kill: ${err.message}`)
+            set({ checkKillOutput: `Error: ${err.message}` })
+          }
+        },
+
+        restoreNetwork: async () => {
+          try {
+            const res = await fetch('http://127.0.0.1:8000/api/adapters/restore', {
+              method: 'POST'
+            })
+            if (!res.ok) {
+              const err = await res.text()
+              throw new Error(err || "Failed to restore network services")
+            }
+            const data = await res.json()
+            set({ restoreOutput: data.output || "Network services restarted", checkKillOutput: null })
+            toast.success("Network services restored successfully")
+          } catch (e) {
+            const err = e as Error
+            toast.error(`Failed to restore network: ${err.message}`)
+            set({ restoreOutput: `Error: ${err.message}` })
           }
         },
 

@@ -1,13 +1,21 @@
 import * as React from 'react'
-import { Play, Square, Skull, Download, WifiOff, Shuffle, Radar } from 'lucide-react'
+import { Play, Square, Skull, Download, WifiOff, Shuffle, Radar, Filter, DownloadCloud, AlertTriangle, Check } from 'lucide-react'
 import { useWcarckStore, Network } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ContextualPanel } from '@/components/layout/ContextualPanel'
 import { AppTooltip } from '@/components/ui/app-tooltip'
-import { cn } from '@/lib/utils'
+import { cn, copyToClipboard } from '@/lib/utils'
 import { TOOLTIPS } from '@/lib/tooltips'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   useReactTable,
   getCoreRowModel,
@@ -35,9 +43,10 @@ function SignalBars({ rssi }: { rssi: number }) {
         {[1, 2, 3, 4].map(i => (
           <div
             key={i}
-            className="w-[3px] rounded-full transition-all duration-150"
+            className="w-[3px] rounded-full"
             style={{
-              height: `${i * 25}%`,
+              transition: 'height 0.4s ease, background-color 0.6s ease',
+              height: i <= strength ? `${i * 25}%` : '20%',
               backgroundColor: i <= strength ? color : 'var(--border-subtle)',
             }}
           />
@@ -82,20 +91,89 @@ export function Reconnaissance() {
   const navigate = useNavigate()
 
   const [globalFilter, setGlobalFilter] = React.useState('')
+  const [selectedBand, setSelectedBand] = React.useState('abg')
+  const [selectedChannel, setSelectedChannel] = React.useState('all')
+  const [hopInterval, setHopInterval] = React.useState(250)
+  
+  // Advanced Filter States
+  const [encFilter, setEncFilter] = React.useState('all')
+  const [clientsOnly, setClientsOnly] = React.useState(false)
+  const [berlinMode, setBerlinMode] = React.useState(false)
+  const [minSignal, setMinSignal] = React.useState(-95)
+
+  // Advanced Deauth Modal State
+  const [isDeauthModalOpen, setIsDeauthModalOpen] = React.useState(false)
+  const [deauthClientMac, setDeauthClientMac] = React.useState('FF:FF:FF:FF:FF:FF')
+  const [deauthCount, setDeauthCount] = React.useState(64)
+  const [deauthContinuous, setDeauthContinuous] = React.useState(false)
+  const [deauthReason, setDeauthReason] = React.useState(1)
+
   const parentRef = React.useRef<HTMLDivElement>(null)
 
   const selectedBssid = uiState.focusedNetworkBssid
+  const monitorAdapters = React.useMemo(() => adapters.filter(a => a.mode === 'monitor'), [adapters])
+  const [selectedIface, setSelectedIface] = React.useState<string>('')
+  const activeIface = React.useMemo(() => {
+    return monitorAdapters.some(a => a.iface === selectedIface) ? selectedIface : (monitorAdapters[0]?.iface || '')
+  }, [monitorAdapters, selectedIface])
   const setSelectedBssid = (bssid: string | null) => setUiState({ focusedNetworkBssid: bssid })
 
-  const data = React.useMemo(() => Array.from(networks.values()), [networks])
+  const validChannels = React.useMemo(() => {
+    const ch24 = Array.from({ length: 14 }, (_, i) => i + 1)
+    const ch5 = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 169, 173]
+    if (selectedBand === 'a') return ch5
+    if (selectedBand === 'bg') return ch24
+    return [...ch24, ...ch5]
+  }, [selectedBand])
+
+  React.useEffect(() => {
+    if (selectedChannel !== 'all' && !validChannels.includes(Number(selectedChannel))) {
+      setSelectedChannel('all')
+    }
+  }, [validChannels, selectedChannel])
+
+  // Data Pipeline with Advanced Filtering
+  const data = React.useMemo(() => {
+    let filtered = Array.from(networks.values())
+    const now = Date.now()
+
+    filtered = filtered.filter(net => {
+      // 1. Min Signal Threshold
+      if (net.power < minSignal) return false
+      
+      // 2. Encryption Filter
+      if (encFilter !== 'all') {
+        const encLow = net.encryption.toLowerCase()
+        if (encFilter === 'wpa3' && !encLow.includes('wpa3')) return false
+        if (encFilter === 'wpa2' && (!encLow.includes('wpa2') || encLow.includes('wpa3'))) return false
+        if (encFilter === 'wep' && !encLow.includes('wep')) return false
+        if (encFilter === 'open' && !encLow.includes('open')) return false
+      }
+
+      // 3. Clients Only Toggle
+      if (clientsOnly) {
+        const hasClients = Array.from(clients.values()).some(c => c.bssid === net.bssid)
+        if (!hasClients) return false
+      }
+
+      // 4. Berlin Mode (Stale Timeout - 120s)
+      if (berlinMode) {
+        if (now - net.lastSeen > 120000) return false
+      }
+
+      return true
+    })
+
+    return filtered
+  }, [networks, minSignal, encFilter, clientsOnly, berlinMode, clients])
 
   const columns = React.useMemo<ColumnDef<Network>[]>(() => [
     {
       accessorKey: 'ssid',
       header: 'SSID',
       cell: info => (
-        <span className="font-medium text-text-primary">
-          {info.getValue<string>() || <span className="text-text-disabled italic">hidden</span>}
+        <span className="font-semibold text-text-primary">
+          {info.getValue<string>() || <span className="text-text-disabled italic font-normal">hidden</span>}
         </span>
       ),
     },
@@ -125,7 +203,7 @@ export function Reconnaissance() {
         const band = info.getValue<string>()
         return (
           <span className={cn(
-            'text-[10px] font-mono px-1.5 py-0.5 rounded',
+            'text-[10px] font-mono font-bold px-1.5 py-0.5 rounded',
             band === '2.4' ? 'bg-rf-band-24/15 text-rf-band-24' : 'bg-rf-band-5/15 text-rf-band-5'
           )}>
             {band}G
@@ -144,12 +222,22 @@ export function Reconnaissance() {
       cell: info => <EncBadge enc={info.getValue<string>()} pmf={info.row.original.pmf} />,
     },
     {
+      accessorKey: 'beacons',
+      header: 'BEACONS',
+      cell: info => <span className="text-xs font-mono text-text-secondary">{info.getValue<number>()}</span>,
+    },
+    {
+      accessorKey: 'data',
+      header: 'DATA',
+      cell: info => <span className="text-xs font-mono text-text-secondary">{info.getValue<number>()}</span>,
+    },
+    {
       id: 'clients',
       header: 'CLIENTS',
       cell: info => {
         const bssid = info.row.original.bssid
         const count = Array.from(clients.values()).filter(c => c.bssid === bssid).length
-        return <span className="text-sm tabular-nums text-text-secondary">{count}</span>
+        return <span className={cn("text-xs font-mono", count > 0 ? "text-accent font-bold" : "text-text-disabled")}>{count}</span>
       },
     },
   ], [clients])
@@ -179,227 +267,421 @@ export function Reconnaissance() {
   }, [clients, selectedBssid])
 
   const isScanning = activeJobs.some(j => j.type === 'recon')
-  const monAdapter = adapters.find(a => a.mode === 'monitor')
+  const monAdapter = monitorAdapters.length > 0
 
   const handleStartScan = () => {
-    if (!monAdapter) return
+    if (!activeIface) {
+      toast.error("No active monitor interface selected for scanning.")
+      return
+    }
     if (isScanning) {
       const job = activeJobs.find(j => j.type === 'recon')
       if (job) stopJob(job.id)
     } else {
-      startJob('recon', { iface: monAdapter.iface, band: 'all' })
+      startJob('recon', { 
+        iface: activeIface, 
+        band: selectedBand, 
+        channel: selectedChannel !== 'all' ? Number(selectedChannel) : 'all',
+        hop_time: hopInterval 
+      })
     }
+  }
+
+  const exportCSV = () => {
+    if (!data.length) return toast.warning("No networks to export")
+    let csv = "BSSID,SSID,Channel,Encryption,Cipher,Auth,PMF,Power,Beacons,Data,LastSeen\n"
+    data.forEach(n => {
+      csv += `${n.bssid},"${n.ssid}",${n.channel},${n.encryption},${n.cipher},${n.auth},${n.pmf},${n.power},${n.beacons},${n.data},${new Date(n.lastSeen).toISOString()}\n`
+    })
+    
+    // Also include clients at the bottom
+    csv += "\n\nClientMAC,AssociatedBSSID,Power,Packets,LastSeen\n"
+    const clientData = Array.from(clients.values())
+    clientData.forEach(c => {
+      if (data.some(n => n.bssid === c.bssid)) {
+        csv += `${c.mac},${c.bssid},${c.power},${c.packets},${new Date(c.lastSeen).toISOString()}\n`
+      }
+    })
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `wcarck-recon-${Date.now()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success("Reconnaissance data exported to CSV")
   }
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
 
-      {/* ── CONTROLS BAR ────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 mb-3 flex-shrink-0">
-        <Button
-          onClick={handleStartScan}
-          disabled={!monAdapter}
-          variant={isScanning ? 'destructive' : 'default'}
-          className={cn(
-            'flex-shrink-0 gap-2',
-            !isScanning && 'bg-accent text-white hover:bg-accent-hover'
-          )}
-        >
-          {isScanning ? (
-            <><Square className="w-3.5 h-3.5" fill="currentColor" /> Stop Scan</>
-          ) : (
-            <><Play className="w-3.5 h-3.5" fill="currentColor" /> Start Scan</>
-          )}
-        </Button>
+      {/* ── CONTROLS & FILTERS BAR ────────────────────────────────────────── */}
+      <div className="flex flex-col gap-2 mb-3 flex-shrink-0 bg-bg-elevated border border-border-subtle p-2.5 rounded-lg shadow-sm">
+        
+        {/* Top Row: Scanner Controls */}
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleStartScan}
+            disabled={!monAdapter}
+            variant={isScanning ? 'destructive' : 'default'}
+            className={cn(
+              'flex-shrink-0 gap-2 font-bold shadow-sm',
+              !isScanning && 'bg-accent text-white hover:bg-accent-hover'
+            )}
+          >
+            {isScanning ? (
+              <><Square className="w-3.5 h-3.5" fill="currentColor" /> Stop Scan</>
+            ) : (
+              <><Play className="w-3.5 h-3.5" fill="currentColor" /> Start Scan</>
+            )}
+          </Button>
 
-        {/* Adapter selector */}
-        <div className="flex items-center gap-2 text-sm text-text-secondary">
-          <span className="text-text-disabled text-xs">Adapter:</span>
-          <select className="bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent transition-colors">
-            {adapters.filter(a => a.mode === 'monitor').map(a => (
-              <option key={a.iface}>{a.iface}</option>
-            ))}
-            {!monAdapter && <option>No monitor adapter</option>}
-          </select>
+          {/* Adapter selector */}
+          <div className="flex items-center gap-2 text-sm text-text-secondary ml-2">
+            <span className="text-text-disabled text-[10px] uppercase font-bold tracking-wider">Adapter:</span>
+            <Select value={activeIface || '_none'} onValueChange={val => setSelectedIface(val === '_none' ? '' : val)}>
+              <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-8 w-[140px]">
+                <SelectValue placeholder="No Monitor Iface" />
+              </SelectTrigger>
+              <SelectContent>
+                {monitorAdapters.map(a => (
+                  <SelectItem key={a.iface} value={a.iface}>{a.iface}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="h-4 w-px bg-border-subtle mx-1" />
+
+          {/* Band selector */}
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span className="text-text-disabled text-[10px] uppercase font-bold tracking-wider">Band:</span>
+            <Select value={selectedBand} onValueChange={setSelectedBand} disabled={isScanning}>
+              <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-8 w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bg">2.4 GHz</SelectItem>
+                <SelectItem value="a">5 GHz</SelectItem>
+                <SelectItem value="abg">2.4 + 5 GHz</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span className="text-text-disabled text-[10px] uppercase font-bold tracking-wider">CH:</span>
+            <Select value={selectedChannel} onValueChange={setSelectedChannel} disabled={isScanning}>
+              <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-8 w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-[250px]">
+                <SelectItem value="all">All</SelectItem>
+                {validChannels.map(ch => (
+                  <SelectItem key={ch} value={ch.toString()}>{ch}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span className="text-text-disabled text-[10px] uppercase font-bold tracking-wider">Hop Time (ms):</span>
+            <Input
+              type="number"
+              value={hopInterval}
+              onChange={e => setHopInterval(Number(e.target.value))}
+              disabled={isScanning}
+              min={100}
+              step={50}
+              className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-8 w-[70px] text-center"
+            />
+          </div>
+
+          <div className="flex-1" />
+          
+          <Button variant="outline" size="sm" onClick={exportCSV} className="h-8 bg-bg-surface border-border-default text-text-primary">
+            <DownloadCloud className="w-3.5 h-3.5 mr-2 text-text-secondary" /> Export CSV
+          </Button>
         </div>
 
-        {/* Divider */}
-        <div className="h-5 w-px bg-border-subtle" />
+        {/* Bottom Row: Advanced Filters */}
+        <div className="flex items-center gap-4 border-t border-border-subtle pt-2.5 mt-1">
+          <div className="flex items-center gap-2 bg-bg-surface px-2 rounded-md border border-border-subtle h-8 min-w-[200px]">
+            <Radar className="w-3.5 h-3.5 text-text-disabled" />
+            <input
+              type="text"
+              placeholder="Filter SSID or BSSID..."
+              value={globalFilter}
+              onChange={e => setGlobalFilter(e.target.value)}
+              className="bg-transparent border-none text-xs text-text-primary outline-none w-full"
+            />
+          </div>
 
-        {/* Stats pills */}
-        <div className="flex items-center gap-2 text-xs text-text-disabled font-mono">
-          <span className="bg-bg-elevated border border-border-subtle px-2 py-1 rounded">
-            {data.length} networks
-          </span>
-          {data.length > 0 && (
-            <span className="bg-bg-elevated border border-border-subtle px-2 py-1 rounded">
-              {rows.length} shown
-            </span>
-          )}
-        </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-3 h-3 text-text-disabled" />
+            <Select value={encFilter} onValueChange={setEncFilter}>
+              <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary h-8 w-[110px] focus:ring-0">
+                <SelectValue placeholder="Encryption" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Enc</SelectItem>
+                <SelectItem value="wpa3">WPA3 Only</SelectItem>
+                <SelectItem value="wpa2">WPA2 Only</SelectItem>
+                <SelectItem value="wep">WEP Only</SelectItem>
+                <SelectItem value="open">Open Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {/* Spacer */}
-        <div className="flex-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setClientsOnly(!clientsOnly)}
+            className={cn(
+              "h-8 text-xs font-semibold px-3 transition-colors",
+              clientsOnly 
+                ? "bg-accent/15 border-accent text-accent hover:bg-accent/25" 
+                : "bg-bg-surface border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+            )}
+          >
+            {clientsOnly && <Check className="w-3.5 h-3.5 mr-1.5" />}
+            Has Clients
+          </Button>
 
-        {/* Search */}
-        <div className="relative w-56 flex-shrink-0">
-          <Radar className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-disabled" />
-          <Input
-            type="text"
-            placeholder="Filter networks..."
-            value={globalFilter}
-            onChange={e => setGlobalFilter(e.target.value)}
-            className="pl-8 h-8 bg-bg-elevated border-border-subtle text-text-primary text-sm"
-          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBerlinMode(!berlinMode)}
+            className={cn(
+              "h-8 text-xs font-semibold px-3 transition-colors",
+              berlinMode 
+                ? "bg-status-warning/15 border-status-warning text-status-warning hover:bg-status-warning/25" 
+                : "bg-bg-surface border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+            )}
+          >
+            {berlinMode && <Check className="w-3.5 h-3.5 mr-1.5" />}
+            Berlin Mode
+          </Button>
+
+          <div className="flex-1" />
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] uppercase font-bold text-text-disabled">Min Signal: {minSignal} dBm</span>
+            <input 
+              type="range" 
+              min="-100" max="-30" step="1" 
+              value={minSignal} 
+              onChange={e => setMinSignal(Number(e.target.value))}
+              className="w-24 accent-accent" 
+            />
+          </div>
         </div>
       </div>
 
-      {/* ── MAIN TABLE + PANEL ───────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
-        {/* Table region (shrinks when panel is open) */}
-        <div className={cn(
-          'h-full flex flex-col bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden transition-all duration-300',
-          selectedBssid ? 'mr-[384px]' : ''
-        )}>
-          {data.length === 0 ? (
-            /* EMPTY STATE — fills the card */
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-              <Radar className="w-12 h-12 text-text-disabled opacity-30" />
-              <div>
-                <p className="text-sm font-medium text-text-primary mb-1">No Networks Found</p>
-                <p className="text-xs text-text-disabled">Start a scan to discover nearby wireless networks.</p>
-              </div>
-              {monAdapter && (
-                <Button size="sm" onClick={handleStartScan} className="bg-accent text-white hover:bg-accent-hover shadow-glow-accent text-xs mt-2">
-                  <Play className="w-3 h-3 mr-1.5" fill="currentColor" />Start Scan
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Table header */}
-              <div className="bg-bg-surface border-b border-border-subtle flex-shrink-0">
-                {table.getHeaderGroups().map(headerGroup => (
-                  <div key={headerGroup.id} className="flex items-center h-9">
-                    {headerGroup.headers.map(header => (
-                      <div
-                        key={header.id}
-                        className="px-4 text-[10px] font-semibold text-text-disabled uppercase tracking-widest flex-1"
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                      </div>
-                    ))}
+      {/* ── MAIN CONTENT (TABLE + PANEL) ────────────────────────────────── */}
+      <div className="flex-1 min-h-0 flex gap-4">
+        {/* Table Container */}
+        <div className="flex-1 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden flex flex-col shadow-sm">
+          {/* Table Header */}
+          <div className="bg-bg-surface border-b border-border-subtle flex-shrink-0 select-none">
+            {table.getHeaderGroups().map(headerGroup => (
+              <div key={headerGroup.id} className="flex items-center h-10 px-4">
+                {headerGroup.headers.map(header => (
+                  <div
+                    key={header.id}
+                    className={cn(
+                      'text-[10px] font-bold text-text-disabled uppercase tracking-widest',
+                      header.column.id === 'ssid' ? 'flex-1' :
+                      header.column.id === 'bssid' ? 'w-36 flex-shrink-0' :
+                      header.column.id === 'channel' ? 'w-12 flex-shrink-0' :
+                      header.column.id === 'band' ? 'w-16 flex-shrink-0' :
+                      header.column.id === 'power' ? 'w-24 flex-shrink-0' :
+                      header.column.id === 'encryption' ? 'w-28 flex-shrink-0' :
+                      header.column.id === 'beacons' ? 'w-20 flex-shrink-0' :
+                      header.column.id === 'data' ? 'w-16 flex-shrink-0' :
+                      header.column.id === 'clients' ? 'w-20 flex-shrink-0 text-right' :
+                      'flex-1'
+                    )}
+                  >
+                    {flexRender(header.column.columnDef.header, header.getContext())}
                   </div>
                 ))}
               </div>
+            ))}
+          </div>
 
-              {/* Virtualized rows */}
-              <div
-                ref={parentRef}
-                className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-border-strong scrollbar-track-transparent"
-              >
-                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
-                  {rowVirtualizer.getVirtualItems().map(virtualRow => {
-                    const row = rows[virtualRow.index]
-                    const isSelected = selectedBssid === row.original.bssid
-                    return (
-                      <div
-                        key={row.id}
-                        onClick={() => setSelectedBssid(row.original.bssid)}
-                        className={cn(
-                          'absolute inset-x-0 flex items-center cursor-pointer transition-colors border-b border-border-subtle/50',
-                          isSelected
-                            ? 'bg-accent/10'
-                            : 'hover:bg-bg-hover'
-                        )}
-                        style={{
-                          top: virtualRow.start,
-                          height: virtualRow.size,
-                        }}
-                      >
-                        {row.getVisibleCells().map(cell => (
-                          <div key={cell.id} className="px-4 flex-1 overflow-hidden">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
+          {/* Virtualized Body */}
+          <div ref={parentRef} className="flex-1 overflow-auto bg-bg-elevated relative">
+            {rows.length === 0 ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-text-disabled gap-3">
+                <Radar className="w-10 h-10 opacity-20" />
+                <span className="text-sm font-medium">No networks match filters</span>
               </div>
-            </>
-          )}
+            ) : (
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                  const row = rows[virtualRow.index]
+                  const isSelected = selectedBssid === row.original.bssid
+                  const stale = (Date.now() - row.original.lastSeen) > 30000
+
+                  return (
+                    <div
+                      key={row.id}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      onClick={() => setSelectedBssid(row.original.bssid)}
+                      className={cn(
+                        'flex items-center px-4 border-b border-border-subtle/50 transition-colors cursor-pointer select-none',
+                        isSelected ? 'bg-bg-active' : 'hover:bg-bg-hover',
+                        stale && !isSelected && 'opacity-50 grayscale-[50%]'
+                      )}
+                    >
+                      {row.getVisibleCells().map(cell => (
+                        <div
+                          key={cell.id}
+                          className={cn(
+                            cell.column.id === 'ssid' ? 'flex-1 truncate pr-4' :
+                            cell.column.id === 'bssid' ? 'w-36 flex-shrink-0' :
+                            cell.column.id === 'channel' ? 'w-12 flex-shrink-0' :
+                            cell.column.id === 'band' ? 'w-16 flex-shrink-0' :
+                            cell.column.id === 'power' ? 'w-24 flex-shrink-0' :
+                            cell.column.id === 'encryption' ? 'w-28 flex-shrink-0' :
+                            cell.column.id === 'beacons' ? 'w-20 flex-shrink-0' :
+                            cell.column.id === 'data' ? 'w-16 flex-shrink-0' :
+                            cell.column.id === 'clients' ? 'w-20 flex-shrink-0 text-right' :
+                            'flex-1'
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Contextual detail panel */}
+        {/* Contextual Panel */}
         <ContextualPanel
-          isOpen={!!selectedBssid}
+          isOpen={!!selectedNetwork}
           onClose={() => setSelectedBssid(null)}
-          title={selectedNetwork?.ssid || 'hidden network'}
+          title="Network Details"
         >
           {selectedNetwork && (
-            <div className="flex flex-col h-full pb-16 animate-fade-in">
-              <div className="font-mono text-xs text-text-secondary bg-bg-active px-2 py-1 rounded border border-border-subtle inline-block self-start mb-4">
-                {selectedNetwork.bssid}
-              </div>
-
-              <div className="space-y-5 flex-1">
-                {/* Details grid */}
-                <div className="grid grid-cols-2 gap-y-4 gap-x-3 text-sm">
-                  {[
-                    { label: 'Channel', value: `${selectedNetwork.channel} (${selectedNetwork.channel > 14 ? '5' : '2.4'} GHz)` },
-                    { label: 'Signal', value: `${selectedNetwork.power} dBm` },
-                  ].map(item => (
-                    <div key={item.label}>
-                      <div className="text-[10px] text-text-disabled font-semibold uppercase tracking-widest mb-1">{item.label}</div>
-                      <div className="text-text-primary font-mono text-sm">{item.value}</div>
-                    </div>
-                  ))}
-                  <div className="col-span-2">
-                    <div className="text-[10px] text-text-disabled font-semibold uppercase tracking-widest mb-1">Encryption</div>
-                    <div className="flex items-center gap-2 text-text-primary text-sm">
-                      {selectedNetwork.encryption}
-                      {selectedNetwork.pmf && (
-                        <span className="text-[9px] bg-status-info/15 text-status-info px-1.5 py-0.5 rounded border border-status-info/25">PMF</span>
+            <div className="flex flex-col h-full">
+              <div className="flex-1 overflow-y-auto p-5 pb-24">
+                
+                {/* Header Info */}
+                <div className="flex items-start gap-4 mb-6">
+                  <div className="w-10 h-10 rounded-lg bg-bg-active border border-border-default flex items-center justify-center flex-shrink-0">
+                    <Radar className="w-5 h-5 text-accent" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-bold text-text-primary truncate" title={selectedNetwork.ssid}>
+                      {selectedNetwork.ssid || <span className="italic text-text-disabled">Hidden SSID</span>}
+                    </h3>
+                    <div className="font-mono text-xs text-text-secondary mt-0.5 select-all">{selectedNetwork.bssid}</div>
+                    
+                    {/* Last seen indicator */}
+                    <div className="flex items-center gap-1.5 mt-2 text-[10px] font-medium uppercase tracking-wider">
+                      {(Date.now() - selectedNetwork.lastSeen) > 30000 ? (
+                        <span className="text-status-warning flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Stale ({( (Date.now() - selectedNetwork.lastSeen)/1000 ).toFixed(0)}s ago)</span>
+                      ) : (
+                        <span className="text-status-success flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse" /> Active Now</span>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Clients section */}
-                <div>
-                  <div className="text-[10px] text-text-disabled font-semibold uppercase tracking-widest mb-2">
-                    Connected Clients ({connectedClients.length})
+                {/* Grid Stats */}
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  <div className="bg-bg-surface border border-border-subtle p-3 rounded-lg">
+                    <div className="text-[10px] text-text-disabled uppercase font-bold tracking-widest mb-1">Signal</div>
+                    <div className="flex items-end gap-2">
+                      <SignalBars rssi={selectedNetwork.power} />
+                      <span className="text-sm font-mono text-text-primary">{selectedNetwork.power} dBm</span>
+                    </div>
                   </div>
+                  <div className="bg-bg-surface border border-border-subtle p-3 rounded-lg">
+                    <div className="text-[10px] text-text-disabled uppercase font-bold tracking-widest mb-1">Channel</div>
+                    <div className="text-sm font-mono text-text-primary">
+                      {selectedNetwork.channel} <span className="text-text-disabled text-xs">({selectedNetwork.channel > 14 ? '5G' : '2.4G'})</span>
+                    </div>
+                  </div>
+                  <div className="col-span-2 bg-bg-surface border border-border-subtle p-3 rounded-lg">
+                    <div className="text-[10px] text-text-disabled uppercase font-bold tracking-widest mb-2">Security Profile</div>
+                    <div className="flex gap-4">
+                      <div>
+                        <div className="text-[9px] text-text-disabled uppercase font-semibold">Suite</div>
+                        <div className="text-xs font-semibold text-text-primary">{selectedNetwork.encryption}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] text-text-disabled uppercase font-semibold">Cipher</div>
+                        <div className="text-xs font-mono text-text-secondary">{selectedNetwork.cipher}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] text-text-disabled uppercase font-semibold">Auth</div>
+                        <div className="text-xs font-mono text-text-secondary">{selectedNetwork.auth}</div>
+                      </div>
+                      {selectedNetwork.pmf && (
+                        <div>
+                          <div className="text-[9px] text-text-disabled uppercase font-semibold">PMF</div>
+                          <div className="text-xs font-bold text-status-success">Required</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Traffic Stats */}
+                <div className="bg-bg-surface border border-border-subtle p-3 rounded-lg mb-6 flex justify-between">
+                  <div>
+                    <div className="text-[10px] text-text-disabled uppercase font-bold tracking-widest mb-0.5">Beacons</div>
+                    <div className="text-sm font-mono text-text-primary">{selectedNetwork.beacons}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-text-disabled uppercase font-bold tracking-widest mb-0.5">Data Packets</div>
+                    <div className="text-sm font-mono text-text-primary">{selectedNetwork.data}</div>
+                  </div>
+                </div>
+
+                {/* Connected Clients */}
+                <div>
+                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider mb-3 flex items-center justify-between">
+                    Associated Clients
+                    <span className="bg-bg-surface border border-border-subtle px-2 py-0.5 rounded-full text-[10px]">{connectedClients.length}</span>
+                  </h4>
+                  
                   {connectedClients.length === 0 ? (
-                    <div className="text-xs text-text-disabled italic p-3 text-center bg-bg-surface rounded border border-border-subtle">
-                      No clients detected
+                    <div className="text-[11px] text-text-disabled italic p-4 bg-bg-surface rounded-lg border border-border-subtle text-center">
+                      No active stations detected
                     </div>
                   ) : (
-                    <div className="bg-bg-surface rounded border border-border-subtle divide-y divide-border-subtle max-h-48 overflow-y-auto">
+                    <div className="flex flex-col gap-2">
                       {connectedClients.map(client => (
-                        <div key={client.mac} className="p-2.5 flex justify-between items-center hover:bg-bg-hover group/cli">
+                        <div key={client.mac} className="group/cli flex items-center justify-between p-2.5 bg-bg-surface rounded-lg border border-border-subtle hover:border-border-default transition-colors">
                           <div>
-                            <div className="font-mono text-xs text-text-primary flex items-center gap-1.5">
-                              {client.mac}
-                              {client.randomized && (
-                                <AppTooltip content="Randomized MAC — deauth may not work">
-                                  <Shuffle className="w-3 h-3 text-status-warning" />
-                                </AppTooltip>
-                              )}
+                            <div className="font-mono text-xs text-text-primary font-medium">{client.mac}</div>
+                            <div className="text-[10px] text-text-disabled mt-0.5 flex items-center gap-2">
+                              <span><SignalBars rssi={client.power} /></span>
+                              <span>Pkts: {client.packets}</span>
                             </div>
-                            <div className="text-[10px] text-text-disabled mt-0.5">Pkt: {client.packets}</div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="text-xs font-mono"
-                              style={{ color: client.power > -65 ? 'var(--status-success)' : 'var(--status-warning)' }}
-                            >
-                              {client.power} dBm
-                            </div>
-                            {monAdapter && (
+                          <div>
+                            {activeIface && (
                               <button
-                                onClick={() => startJob('deauth', { bssid: selectedNetwork!.bssid, client_mac: client.mac, iface: monAdapter!.iface })}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeauthClientMac(client.mac)
+                                  setIsDeauthModalOpen(true)
+                                }}
                                 title="Targeted deauth this client"
                                 className="opacity-0 group-hover/cli:opacity-100 transition-opacity text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-status-error/10 text-status-error border border-status-error/25 hover:bg-status-error/20"
                               >
@@ -415,7 +697,7 @@ export function Reconnaissance() {
               </div>
 
               {/* Sticky action buttons */}
-              <div className="absolute bottom-0 left-0 right-0 bg-bg-surface border-t border-border-subtle p-3">
+              <div className="absolute bottom-0 left-0 right-0 bg-bg-surface border-t border-border-subtle p-3 shadow-lg">
                 <div className="grid grid-cols-2 gap-2">
                   <AppTooltip content={TOOLTIPS['Deauth']}>
                     <Button
@@ -423,26 +705,36 @@ export function Reconnaissance() {
                       size="sm"
                       className="bg-status-error/8 hover:bg-status-error/16 text-status-error border-status-error/25 w-full"
                       onClick={() => {
-                        if (!monAdapter) { return }
-                        startJob('deauth', { bssid: selectedNetwork.bssid, iface: monAdapter.iface })
+                        if (!activeIface) {
+                          toast.error("No active monitor interface selected.")
+                          return
+                        }
+                        setDeauthClientMac('FF:FF:FF:FF:FF:FF')
+                        setIsDeauthModalOpen(true)
                       }}
                     >
-                      <WifiOff className="w-3.5 h-3.5 mr-1.5" />Deauth All
+                      <WifiOff className="w-3.5 h-3.5 mr-1.5" />Deauth
                     </Button>
                   </AppTooltip>
                   <AppTooltip content={TOOLTIPS['PMKID']}>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="bg-bg-active hover:bg-bg-hover border-border-subtle w-full"
-                      onClick={() => startJob('pmkid', { bssid: selectedNetwork.bssid })}
+                      className="bg-bg-active hover:bg-bg-hover border-border-subtle w-full text-text-primary"
+                      onClick={() => {
+                        if (!activeIface) {
+                          toast.error("No active monitor interface selected.")
+                          return
+                        }
+                        startJob('pmkid', { bssid: selectedNetwork.bssid, iface: activeIface, channel: selectedNetwork.channel })
+                      }}
                     >
                       <Download className="w-3.5 h-3.5 mr-1.5" />PMKID
                     </Button>
                   </AppTooltip>
                   <Button
                     size="sm"
-                    className="col-span-2 bg-bg-active hover:bg-bg-hover text-text-primary border border-border-subtle"
+                    className="col-span-2 bg-accent hover:bg-accent-hover text-white font-bold"
                     onClick={() => {
                       setUiState({ focusedNetworkBssid: selectedNetwork.bssid })
                       navigate('/eviltwin')
@@ -456,6 +748,145 @@ export function Reconnaissance() {
           )}
         </ContextualPanel>
       </div>
+
+      {/* ── ADVANCED DEAUTH MODAL ────────────────────────────────────────── */}
+      {isDeauthModalOpen && selectedNetwork && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-bg-elevated border border-border-default rounded-xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 animate-scale-in">
+            <div className="flex justify-between items-start border-b border-border-subtle pb-3">
+              <div>
+                <h3 className="text-md font-bold text-text-primary">Advanced Deauthentication</h3>
+                <p className="text-xs text-text-disabled mt-0.5">Target AP: {selectedNetwork.ssid || selectedNetwork.bssid}</p>
+              </div>
+              <button 
+                onClick={() => setIsDeauthModalOpen(false)}
+                className="text-text-disabled hover:text-text-primary font-mono text-sm leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {/* Target Station */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-text-secondary">Target Station</label>
+                <Select
+                  value={deauthClientMac}
+                  onValueChange={val => setDeauthClientMac(val)}
+                >
+                  <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-9 w-full">
+                    <SelectValue placeholder="Select target station" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FF:FF:FF:FF:FF:FF">FF:FF:FF:FF:FF:FF (Broadcast / All Clients)</SelectItem>
+                    {connectedClients.map(c => (
+                      <SelectItem key={c.mac} value={c.mac}>{c.mac}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Packet Count & Continuous Toggle */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-text-secondary">Packet Count</label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={10000}
+                    step={10}
+                    disabled={deauthContinuous}
+                    value={deauthCount}
+                    onChange={e => setDeauthCount(Number(e.target.value))}
+                    className="bg-bg-surface border border-border-subtle rounded px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-40"
+                  />
+                </div>
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-text-secondary cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={deauthContinuous}
+                      onChange={e => setDeauthContinuous(e.target.checked)}
+                      className="rounded border-border-subtle text-accent focus:ring-accent bg-bg-surface h-4 w-4"
+                    />
+                    Continuous Attack
+                  </label>
+                </div>
+              </div>
+
+              {/* Reason Code */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-text-secondary">IEEE 802.11 Reason Code</label>
+                <Select
+                  value={deauthReason.toString()}
+                  onValueChange={val => setDeauthReason(Number(val))}
+                >
+                  <SelectTrigger className="bg-bg-surface border border-border-subtle text-xs text-text-primary font-medium h-9 w-full">
+                    <SelectValue placeholder="Select reason code" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 - Unspecified</SelectItem>
+                    <SelectItem value="2">2 - Previous authentication no longer valid</SelectItem>
+                    <SelectItem value="3">3 - Deauth leaving STA (Unsubscribed)</SelectItem>
+                    <SelectItem value="4">4 - Disassociated due to inactivity</SelectItem>
+                    <SelectItem value="6">6 - Class 2 frame received from nonauthenticated STA</SelectItem>
+                    <SelectItem value="7">7 - Class 3 frame received from nonassociated STA</SelectItem>
+                    <SelectItem value="8">8 - Disassociated leaving STA</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Live Status Tracker */}
+              {activeJobs.some(j => j.type === 'deauth' && j.target === selectedNetwork.bssid) ? (
+                (() => {
+                  const job = activeJobs.find(j => j.type === 'deauth' && j.target === selectedNetwork.bssid)
+                  return (
+                    <div className="bg-black/90 p-4 rounded-lg font-mono text-xs border border-border-subtle text-status-success flex flex-col gap-2 mt-2">
+                      <div className="flex justify-between items-center text-[10px] text-text-disabled uppercase font-bold border-b border-border-subtle pb-1">
+                        <span>Live Attack Status</span>
+                        <span className="animate-pulse flex h-2 w-2 rounded-full bg-status-error" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-text-primary">
+                        <div>Bursts Sent: <span className="text-status-success font-bold">{job?.framesSent || 0}</span></div>
+                        <div>ACKs Received: <span className="text-status-success font-bold">{job?.acks || 0}</span></div>
+                      </div>
+                      {job?.status_message && (
+                        <div className="text-[10px] text-text-secondary mt-1 max-w-full truncate">{job.status_message}</div>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="mt-2 w-full text-xs h-8 bg-status-error hover:bg-status-error/90 text-white"
+                        onClick={() => job && stopJob(job.id)}
+                      >
+                        Stop Attack
+                      </Button>
+                    </div>
+                  )
+                })()
+              ) : (
+                <Button
+                  onClick={() => {
+                    if (!activeIface) return
+                    startJob('deauth', {
+                      bssid: selectedNetwork.bssid,
+                      client_mac: deauthClientMac,
+                      count: deauthCount,
+                      continuous: deauthContinuous,
+                      reason: deauthReason,
+                      iface: activeIface
+                    })
+                  }}
+                  disabled={!activeIface}
+                  className="w-full bg-status-error text-white hover:bg-status-error/90 mt-2 h-9 flex items-center justify-center gap-1.5 font-bold shadow-glow-error"
+                >
+                  <WifiOff className="w-4 h-4" /> Start Deauth Attack
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

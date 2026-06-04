@@ -11,14 +11,12 @@ function MetricPill({
   label,
   value,
   icon: Icon,
-  accentColor,
   tooltip,
   onClick,
 }: {
   label: string
   value: number
   icon: React.ElementType
-  accentColor: string
   tooltip: string
   onClick?: () => void
 }) {
@@ -32,7 +30,7 @@ function MetricPill({
           <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest mb-1">{label}</span>
           <span className="text-2xl font-bold text-text-primary leading-none tabular-nums">{value}</span>
         </div>
-        <Icon className="w-5 h-5 flex-shrink-0 opacity-40 group-hover:opacity-70 transition-opacity" style={{ color: accentColor }} />
+        <Icon className="w-5 h-5 flex-shrink-0 text-text-secondary group-hover:text-text-primary transition-colors" />
       </button>
     </AppTooltip>
   )
@@ -159,12 +157,12 @@ export function Dashboard() {
 
       {/* ── METRIC PILLS ROW ─────────────────────────────────────────── */}
       <div className="flex gap-3 flex-shrink-0">
-        <MetricPill label="Networks"    value={networks.size}     icon={Activity} accentColor="var(--status-info)"    tooltip="Total discovered wireless networks" onClick={() => navigate('/recon')} />
-        <MetricPill label="Clients"     value={clients.size}      icon={Users}    accentColor="var(--status-info)"    tooltip="Total active station client devices" onClick={() => navigate('/recon')} />
-        <MetricPill label="Handshakes"  value={captures.length}   icon={Zap}      accentColor="var(--status-success)" tooltip="Total EAPOL & PMKID cryptographic handshakes captured" onClick={() => navigate('/captures')} />
-        <MetricPill label="Credentials" value={credentials.length} icon={Key}    accentColor="var(--status-warning)" tooltip="Total plaintext or portal credentials harvested" onClick={() => navigate('/credentials')} />
+        <MetricPill label="Networks"    value={networks.size}     icon={Activity} tooltip="Total discovered wireless networks" onClick={() => navigate('/recon')} />
+        <MetricPill label="Clients"     value={clients.size}      icon={Users}    tooltip="Total active station client devices" onClick={() => navigate('/recon')} />
+        <MetricPill label="Handshakes"  value={captures.length}   icon={Zap}      tooltip="Total EAPOL & PMKID cryptographic handshakes captured" onClick={() => navigate('/captures')} />
+        <MetricPill label="Credentials" value={credentials.length} icon={Key}    tooltip="Total plaintext or portal credentials harvested" onClick={() => navigate('/credentials')} />
         {errorCount > 0 && (
-          <MetricPill label="Errors" value={errorCount} icon={AlertCircle} accentColor="var(--status-error)" tooltip="Total logged system/process errors" onClick={() => navigate('/logs')} />
+          <MetricPill label="Errors" value={errorCount} icon={AlertCircle} tooltip="Total logged system/process errors" onClick={() => navigate('/logs')} />
         )}
       </div>
 

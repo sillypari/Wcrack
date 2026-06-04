@@ -32,7 +32,7 @@ export function ContextualPanel({ isOpen, onClose, title, children }: Contextual
     >
       <div className="flex items-center justify-between p-4 border-b border-border">
         <h3 className="font-semibold text-text-primary truncate">{title}</h3>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-text-secondary hover:text-text-primary hover:bg-bg-hover">
+        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-text-secondary hover:text-text-primary hover:bg-bg-hover" aria-label="Close panel">
           <X className="w-4 h-4" />
         </Button>
       </div>

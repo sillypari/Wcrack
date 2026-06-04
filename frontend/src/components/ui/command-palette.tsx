@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/command"
 import { useWcarckStore } from "@/store/useWcarckStore"
 import { toast } from "sonner"
+import { copyToClipboard } from "@/lib/utils"
 
 export function CommandPalette() {
   const [open, setOpen] = React.useState(false)
@@ -49,10 +50,14 @@ export function CommandPalette() {
             <MonitorOff className="mr-2 h-4 w-4" />
             <span>Stop All Jobs</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => {
+          <CommandItem onSelect={() => runCommand(async () => {
             const txt = "Wcarck Debug Report\n" // This will be expanded later
-            navigator.clipboard.writeText(txt)
-            toast.success("Copied to clipboard")
+            const success = await copyToClipboard(txt)
+            if (success) {
+              toast.success("Copied to clipboard")
+            } else {
+              toast.error("Failed to copy to clipboard")
+            }
           })}>
             <Download className="mr-2 h-4 w-4" />
             <span>Copy Debug Report</span>

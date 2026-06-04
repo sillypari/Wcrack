@@ -4,10 +4,10 @@ import { useWcarckStore } from "@/store/useWcarckStore"
 import { Button } from "@/components/ui/button"
 import { AppTooltip } from "@/components/ui/app-tooltip"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { cn, copyToClipboard } from "@/lib/utils"
 
 export function Topbar() {
-  const { uiState, toggleAudio, adapters, sessionStartedAt, logs, projects, activeProjectId } = useWcarckStore()
+  const { uiState, toggleAudio, adapters, sessionStartedAt, logs, projects, activeProjectId, wsConnected } = useWcarckStore()
   const [elapsed, setElapsed] = React.useState("00:00:00")
   const [isFullscreen, setIsFullscreen] = React.useState(!!document.fullscreenElement)
   
@@ -59,10 +59,14 @@ export function Topbar() {
     return () => clearInterval(interval)
   }, [sessionStartedAt])
 
-  const copyDebugReport = () => {
+  const copyDebugReport = async () => {
     const report = `Wcarck Debug Report\nGenerated: ${new Date().toISOString()}\nSession: ${elapsed}\nAdapters: ${adapters.length}\nLast 100 events:\n${JSON.stringify(logs.slice(0, 100), null, 2)}`
-    navigator.clipboard.writeText(report)
-    toast.success("Debug report copied to clipboard")
+    const success = await copyToClipboard(report)
+    if (success) {
+      toast.success("Debug report copied to clipboard")
+    } else {
+      toast.error("Failed to copy report to clipboard")
+    }
   }
 
   return (
@@ -135,6 +139,7 @@ export function Topbar() {
             size="icon"
             onClick={toggleAudio}
             className="text-text-tertiary hover:text-text-primary h-8 w-8 flex-shrink-0"
+            aria-label={uiState.audioEnabled ? "Mute audio alerts" : "Enable audio alerts"}
           >
             {uiState.audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </Button>
@@ -147,6 +152,7 @@ export function Topbar() {
             size="icon"
             onClick={toggleFullscreen}
             className="text-text-tertiary hover:text-text-primary h-8 w-8 flex-shrink-0"
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </Button>
@@ -159,13 +165,21 @@ export function Topbar() {
             size="icon"
             onClick={copyDebugReport}
             className="text-text-tertiary hover:text-text-primary h-8 w-8 flex-shrink-0"
+            aria-label="Copy debug report"
           >
             <FileDown className="w-4 h-4" />
           </Button>
         </AppTooltip>
 
         {/* Error count badge */}
-        {errors > 0 ? (
+        {!wsConnected ? (
+          <AppTooltip content="WebSocket backend is disconnected. UI may be stale. Auto-reconnecting..." side="bottom">
+            <div className="flex items-center gap-1 px-2 py-1 bg-status-error/20 text-status-error rounded border border-status-error/40 text-xs font-bold flex-shrink-0 animate-pulse">
+              <AlertTriangle className="w-3 h-3" />
+              DISCONNECTED
+            </div>
+          </AppTooltip>
+        ) : errors > 0 ? (
           <div className="flex items-center gap-1 px-2 py-1 bg-status-error/10 text-status-error rounded border border-status-error/20 text-xs font-medium flex-shrink-0">
             <AlertTriangle className="w-3 h-3" />
             {errors}

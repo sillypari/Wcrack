@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { ConfirmModal } from '@/components/ui/confirm-modal'
 import { toast } from 'sonner'
 
 export function Projects() {
@@ -16,6 +17,8 @@ export function Projects() {
   const [client, setClient] = React.useState('')
   const [notes, setNotes] = React.useState('')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const [projectToDelete, setProjectToDelete] = React.useState<{id: number, name: string} | null>(null)
 
   const activeProject = projects.find(p => p.id === activeProjectId)
 
@@ -41,9 +44,7 @@ export function Projects() {
   }
 
   const handleDelete = (id: number, name: string) => {
-    if (window.confirm(`Are you sure you want to delete project "${name}"? This will delete all scopes and capture data under it.`)) {
-      deleteProject(id)
-    }
+    setProjectToDelete({ id, name })
   }
 
   return (
@@ -231,6 +232,19 @@ export function Projects() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={!!projectToDelete}
+        onClose={() => setProjectToDelete(null)}
+        onConfirm={() => {
+          if (projectToDelete) deleteProject(projectToDelete.id)
+        }}
+        title="Delete Project"
+        description={`Are you sure you want to delete project "${projectToDelete?.name}"? This will delete all scopes and capture data under it.`}
+        confirmText="Delete Project"
+        cancelText="Cancel"
+        variant="destructive"
+      />
     </div>
   )
 }

@@ -69,6 +69,18 @@ const config: Config = {
         glass: {
           bg: "var(--glass-bg)",
           border: "var(--glass-border)",
+        },
+        popover: {
+          DEFAULT: "var(--popover)",
+          foreground: "var(--popover-foreground)",
+        },
+        card: {
+          DEFAULT: "var(--card)",
+          foreground: "var(--card-foreground)",
+        },
+        muted: {
+          DEFAULT: "var(--muted)",
+          foreground: "var(--muted-foreground)",
         }
       },
       fontFamily: {

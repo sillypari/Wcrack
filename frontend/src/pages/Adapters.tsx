@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Cpu, RefreshCw, AlertTriangle, Monitor, Globe } from 'lucide-react'
+import { Cpu, RefreshCw, AlertTriangle, Monitor, Globe, ShieldAlert, ShieldCheck, Shuffle, Activity, Signal, Zap } from 'lucide-react'
 import { useWcarckStore } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -7,10 +7,26 @@ import { cn } from '@/lib/utils'
 import { AppTooltip } from '@/components/ui/app-tooltip'
 
 export function Adapters() {
-  const { adapters, fetchInitialState } = useWcarckStore()
+  const { 
+    adapters, 
+    fetchInitialState, 
+    checkKill, 
+    restoreNetwork, 
+    checkKillOutput, 
+    restoreOutput 
+  } = useWcarckStore()
   
   // D92: Adapter transition state
   const [transitioning, setTransitioning] = React.useState<Record<string, boolean>>({})
+  const [isKilling, setIsKilling] = React.useState(false)
+  const [isRestoring, setIsRestoring] = React.useState(false)
+  const [isDryRun, setIsDryRun] = React.useState(false)
+
+  // Frontend Stubs State
+  const [randomMacs, setRandomMacs] = React.useState<Record<string, string>>({})
+  const [isRandomizing, setIsRandomizing] = React.useState<Record<string, boolean>>({})
+  const [isInjecting, setIsInjecting] = React.useState<Record<string, boolean>>({})
+  const [injectionResults, setInjectionResults] = React.useState<Record<string, string>>({})
 
   const fetchAdapters = async () => {
     try {
@@ -49,6 +65,68 @@ export function Adapters() {
     }
   }
 
+  const handleCheckKill = async () => {
+    setIsKilling(true)
+    try {
+      await checkKill()
+      setTimeout(() => fetchInitialState(), 1000)
+    } finally {
+      setIsKilling(false)
+    }
+  }
+
+  const handleDryRun = () => {
+    setIsDryRun(true)
+    setTimeout(() => {
+      useWcarckStore.setState({ checkKillOutput: "Found 3 processes that could cause trouble.\nPID Name\n618 NetworkManager\n720 wpa_supplicant\n810 dhclient\n\n(Dry Run Complete. No processes were killed.)" })
+      setIsDryRun(false)
+    }, 1000)
+  }
+
+  const handleRestore = async () => {
+    setIsRestoring(true)
+    try {
+      await restoreNetwork()
+      setTimeout(() => fetchInitialState(), 1000)
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
+  const handleRandomizeMac = (iface: string, originalMac: string) => {
+    setIsRandomizing(prev => ({ ...prev, [iface]: true }))
+    setTimeout(() => {
+      if (randomMacs[iface]) {
+        // Restore
+        const newMacs = { ...randomMacs }
+        delete newMacs[iface]
+        setRandomMacs(newMacs)
+        toast.success(`${iface} MAC restored to ${originalMac}`)
+      } else {
+        // Randomize
+        const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase()
+        const fakeMac = `02:${hex()}:${hex()}:${hex()}:${hex()}:${hex()}`
+        setRandomMacs(prev => ({ ...prev, [iface]: fakeMac }))
+        toast.success(`${iface} MAC randomized to ${fakeMac}`)
+      }
+      setIsRandomizing(prev => ({ ...prev, [iface]: false }))
+    }, 1500)
+  }
+
+  const handleInjectionTest = (iface: string) => {
+    setIsInjecting(prev => ({ ...prev, [iface]: true }))
+    setInjectionResults(prev => { const res = {...prev}; delete res[iface]; return res; })
+    
+    setTimeout(() => {
+      const success = Math.random() > 0.2
+      setInjectionResults(prev => ({ 
+        ...prev, 
+        [iface]: success ? "✅ Injection OK (42/50 ACKs)" : "❌ Injection failed (0/50 ACKs)" 
+      }))
+      setIsInjecting(prev => ({ ...prev, [iface]: false }))
+    }, 2000)
+  }
+
   const totalCount = adapters.length
   const monitorCount = adapters.filter(a => a.mode === 'monitor').length
   const managedCount = totalCount - monitorCount
@@ -77,13 +155,77 @@ export function Adapters() {
             </div>
           )}
         </div>
-        <AppTooltip content="Trigger hardware scan to re-detect wireless interfaces" side="bottom">
-          <Button variant="outline" size="sm" onClick={fetchAdapters} className="bg-bg-active border-border-default text-text-primary h-8">
-            <RefreshCw className="w-3.5 h-3.5 mr-2" />
-            Refresh Inventory
-          </Button>
-        </AppTooltip>
+        <div className="flex items-center gap-2">
+          
+          <AppTooltip content="Dry Run: see which processes would be killed without actually killing them" side="bottom">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleDryRun} 
+              disabled={isDryRun}
+              className="bg-bg-surface border-border-subtle text-text-secondary hover:text-text-primary h-8"
+            >
+              <Activity className={cn("w-3.5 h-3.5 mr-2", isDryRun && "animate-pulse")} />
+              {isDryRun ? "Checking..." : "Check Conflicts (Dry Run)"}
+            </Button>
+          </AppTooltip>
+
+          <AppTooltip content="Run airmon-ng check kill to stop conflicting services (wpa_supplicant, NetworkManager etc)" side="bottom">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleCheckKill} 
+              disabled={isKilling}
+              className="bg-status-error/10 border-status-error/30 text-status-error hover:bg-status-error/20 h-8"
+            >
+              <ShieldAlert className={cn("w-3.5 h-3.5 mr-2", isKilling && "animate-spin")} />
+              {isKilling ? "Killing..." : "Check Kill"}
+            </Button>
+          </AppTooltip>
+
+          <AppTooltip content="Restart NetworkManager and wpa_supplicant to restore internet connectivity" side="bottom">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRestore} 
+              disabled={isRestoring}
+              className="bg-bg-active border-border-default text-text-primary hover:bg-bg-hover h-8"
+            >
+              <ShieldCheck className={cn("w-3.5 h-3.5 mr-2 text-text-secondary", isRestoring && "animate-spin")} />
+              {isRestoring ? "Restoring..." : "Restore Services"}
+            </Button>
+          </AppTooltip>
+
+          <AppTooltip content="Trigger hardware scan to re-detect wireless interfaces" side="bottom">
+            <Button variant="outline" size="sm" onClick={fetchAdapters} className="bg-bg-active border-border-default text-text-primary h-8">
+              <RefreshCw className="w-3.5 h-3.5 mr-2" />
+              Refresh
+            </Button>
+          </AppTooltip>
+        </div>
       </div>
+
+      {/* ── TERMINAL LOG PANEL (Check Kill / Restore Output) ───────────────── */}
+      {(checkKillOutput || restoreOutput) && (
+        <div className="bg-black/90 text-status-success p-4 rounded-lg font-mono text-xs border border-border-default flex flex-col gap-2 relative">
+          <div className="flex justify-between items-center text-[10px] text-text-disabled uppercase font-bold border-b border-border-subtle pb-1">
+            <span>{checkKillOutput ? "Airmon-ng Check Output" : "Network Restoration Output"}</span>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => {
+                useWcarckStore.setState({ checkKillOutput: null, restoreOutput: null })
+              }}
+              className="h-5 text-[10px] text-text-secondary hover:text-text-primary hover:bg-bg-hover px-1.5"
+            >
+              Clear
+            </Button>
+          </div>
+          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed text-text-primary">
+            {checkKillOutput || restoreOutput}
+          </pre>
+        </div>
+      )}
 
       {/* ── CONTENT AREA ────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
@@ -103,13 +245,16 @@ export function Adapters() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-4">
             {adapters.map((adapter) => {
               const isTrans = transitioning[adapter.iface]
               const isMon = adapter.mode === 'monitor'
+              const currentMac = randomMacs[adapter.iface] || adapter.mac
+              const isRandomized = !!randomMacs[adapter.iface]
+              const mockRssi = -30 - (Math.random() * 20)
               
               return (
-                <div key={adapter.iface} className="bg-bg-elevated border border-border-subtle p-5 rounded-lg shadow-sm relative overflow-hidden flex flex-col justify-between group">
+                <div key={adapter.iface} className="bg-bg-elevated border border-border-subtle rounded-lg shadow-sm relative overflow-hidden flex flex-col group">
                   
                   {isTrans && (
                     <div className="absolute top-0 left-0 right-0 h-1 bg-bg-active overflow-hidden">
@@ -117,69 +262,150 @@ export function Adapters() {
                     </div>
                   )}
 
-                  <div>
-                    <div className="flex items-start justify-between mb-4 pl-0">
+                  {/* Card Header */}
+                  <div className="p-5 border-b border-border-subtle/50">
+                    <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h3 className="font-semibold text-text-primary flex items-center gap-2">
+                        <h3 className="font-bold text-text-primary flex items-center gap-2 text-base">
                           <Cpu className="w-4 h-4 text-text-secondary" />
                           {adapter.iface}
                         </h3>
-                        <p className="text-[10px] text-text-disabled font-mono mt-0.5">{adapter.mac}</p>
+                        
+                        {/* RF Kill Status */}
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <div className="w-2 h-2 rounded-full bg-status-success animate-pulse-green" />
+                          <span className="text-[10px] font-bold text-status-success uppercase tracking-wider">RF ON</span>
+                        </div>
                       </div>
+                      
                       <AppTooltip content={isMon ? "Monitor Mode: passive packet sniffer" : "Managed Mode: active station connection"} side="left">
                         <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border",
-                          isMon ? 'bg-status-success/15 text-status-success border-status-success/25' : 'bg-status-info/15 text-status-info border-status-info/25'
+                          "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border shadow-sm",
+                          isMon ? 'bg-status-success/10 text-status-success border-status-success/30' : 'bg-status-info/10 text-status-info border-status-info/30'
                         )}>
                           {adapter.mode}
                         </span>
                       </AppTooltip>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-3 text-xs pl-0 mb-4">
+                    {/* MAC Address Display */}
+                    <div className="flex flex-col gap-1 bg-bg-surface border border-border-subtle rounded px-3 py-2">
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-text-disabled">
+                        <span>Original MAC</span>
+                        <span>Current MAC</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-mono text-xs text-text-secondary">{adapter.mac}</span>
+                        <span className={cn("font-mono text-xs font-bold", isRandomized ? "text-accent" : "text-text-primary")}>
+                          {currentMac}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Card Body - Hardware Info */}
+                  <div className="p-5 flex-1 space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-xs">
                       <div>
-                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-0.5">Chipset</div>
+                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1">Chipset</div>
                         <div className="text-text-primary text-xs truncate" title={adapter.chipset}>{adapter.chipset}</div>
                       </div>
                       <div>
-                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-0.5">Driver</div>
+                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1">Driver</div>
                         <div className="text-text-primary text-xs truncate" title={adapter.driver}>{adapter.driver}</div>
                       </div>
                       <div className="col-span-2">
-                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1">Capabilities</div>
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="text-text-disabled text-[9px] font-semibold uppercase tracking-wider mb-1.5">Capabilities</div>
+                        <div className="flex flex-wrap gap-2">
                           {adapter.bands.map(band => (
-                            <span key={band} className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-bg-surface border border-border-default text-text-secondary">
+                            <span key={band} className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-bg-surface border border-border-default text-text-secondary">
                               {band} GHz
                             </span>
                           ))}
                           {adapter.bands.includes(5) && (
                             <AppTooltip content="Dynamic Frequency Selection rules restrict usage of certain 5 GHz channels under regulatory enforcement" side="top">
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-status-warning/10 border border-status-warning/20 text-status-warning flex items-center cursor-help">
-                                <AlertTriangle className="w-3 h-3 mr-1" /> DFS Rules Apply (D94)
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-status-warning/10 border border-status-warning/20 text-status-warning flex items-center cursor-help">
+                                <AlertTriangle className="w-3 h-3 mr-1" /> DFS Rules Apply
                               </span>
                             </AppTooltip>
                           )}
                         </div>
                       </div>
                     </div>
+
+                    {/* Advanced Controls */}
+                    <div className="flex flex-col gap-2 pt-2 border-t border-border-subtle/50">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold uppercase text-text-secondary">Randomize MAC</span>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          disabled={isRandomizing[adapter.iface]}
+                          onClick={() => handleRandomizeMac(adapter.iface, adapter.mac)}
+                          className={cn(
+                            "h-6 px-2 text-[10px] transition-colors rounded-full font-bold", 
+                            isRandomized 
+                              ? "bg-accent text-white border-accent hover:bg-accent-hover" 
+                              : "bg-bg-surface text-text-secondary hover:text-text-primary"
+                          )}
+                        >
+                          <Shuffle className={cn("w-3 h-3 mr-1", isRandomizing[adapter.iface] && "animate-spin")} />
+                          {isRandomized ? "Revert" : "Randomize"}
+                        </Button>
+                      </div>
+                      
+                      {isMon && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-text-secondary">Injection Test</span>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            disabled={isInjecting[adapter.iface]}
+                            onClick={() => handleInjectionTest(adapter.iface)}
+                            className="h-6 px-2 text-[10px] transition-colors rounded-full font-bold bg-bg-surface text-text-secondary hover:text-text-primary"
+                          >
+                            <Zap className={cn("w-3 h-3 mr-1", isInjecting[adapter.iface] && "animate-pulse")} />
+                            {isInjecting[adapter.iface] ? "Testing..." : "Run Test"}
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {injectionResults[adapter.iface] && (
+                        <div className={cn(
+                          "text-[10px] font-mono px-2 py-1 mt-1 rounded",
+                          injectionResults[adapter.iface].includes("OK") ? "bg-status-success/10 text-status-success" : "bg-status-error/10 text-status-error"
+                        )}>
+                          {injectionResults[adapter.iface]}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
-                  <div className="pt-3 border-t border-border-subtle/50 flex justify-between items-center pl-0">
-                    <div className="flex items-center space-x-2 text-[10px] text-text-disabled">
-                      <AppTooltip content={`Packets Received: ${adapter.rx}`} side="top">
-                        <div className="flex items-center cursor-default">
-                          <div className="w-1.5 h-1.5 rounded-full bg-status-success mr-1" />
-                          RX: {adapter.rx}
-                        </div>
-                      </AppTooltip>
-                      <AppTooltip content={`Packets Transmitted: ${adapter.tx}`} side="top">
-                        <div className="flex items-center cursor-default">
-                          <div className="w-1.5 h-1.5 rounded-full bg-status-info mr-1" />
-                          TX: {adapter.tx}
+                  {/* Card Footer - Stats & Mode Toggle */}
+                  <div className="p-4 bg-bg-surface border-t border-border-subtle flex justify-between items-center">
+                    <div className="flex flex-col gap-1.5 text-[10px] font-mono text-text-disabled">
+                      <div className="flex items-center gap-3">
+                        <AppTooltip content={`Packets Received: ${adapter.rx}`} side="top">
+                          <div className="flex items-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-status-success mr-1.5" />
+                            RX: {adapter.rx}
+                          </div>
+                        </AppTooltip>
+                        <AppTooltip content={`Packets Transmitted: ${adapter.tx}`} side="top">
+                          <div className="flex items-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-status-info mr-1.5" />
+                            TX: {adapter.tx}
+                          </div>
+                        </AppTooltip>
+                      </div>
+                      <AppTooltip content="Signal Quality / Adapter RSSI" side="top">
+                        <div className="flex items-center text-text-secondary font-bold">
+                          <Signal className="w-3 h-3 mr-1" />
+                          {mockRssi.toFixed(0)} dBm
                         </div>
                       </AppTooltip>
                     </div>
+                    
                     <AppTooltip content={isMon ? "Switch back to standard Managed/Station Mode" : "Switch interface to Monitor Mode for scanning/attacks"} side="top">
                       <Button 
                         size="sm"
@@ -187,16 +413,16 @@ export function Adapters() {
                         disabled={isTrans}
                         onClick={() => toggleMode(adapter.iface, adapter.mode)}
                         className={cn(
-                          "h-7 text-[10px] px-2",
+                          "h-8 text-xs font-bold shadow-sm",
                           isMon 
                             ? "bg-bg-active text-text-primary border-border-default hover:bg-bg-hover" 
                             : "bg-status-success/10 text-status-success border-status-success/30 hover:bg-status-success/20"
                         )}
                       >
                         {isMon ? (
-                          <><Globe className="w-3 h-3 mr-1" /> Stop Monitor</>
+                          <><Globe className="w-3.5 h-3.5 mr-1.5" /> Stop Monitor</>
                         ) : (
-                          <><Monitor className="w-3 h-3 mr-1" /> Start Monitor</>
+                          <><Monitor className="w-3.5 h-3.5 mr-1.5" /> Start Monitor</>
                         )}
                       </Button>
                     </AppTooltip>

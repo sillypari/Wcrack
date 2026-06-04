@@ -36,11 +36,11 @@ function NavItem({
       end={item.path === "/"}
       className={({ isActive }) =>
         cn(
-          "flex items-center h-10 transition-colors duration-fast relative overflow-hidden",
+          "flex items-center h-10 transition-colors duration-fast relative overflow-hidden border-l-2",
           isPinned ? "px-4" : "justify-center",
           isActive
-            ? "text-accent bg-accent/8"
-            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+            ? "text-accent bg-accent/8 border-accent"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary border-transparent"
         )
       }
     >

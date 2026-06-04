@@ -32,7 +32,7 @@ function EapolProgress({ m1, m2, m3, m4 }: { m1: boolean; m2: boolean; m3: boole
     { label: 'M4', captured: m4 },
   ]
   const progressIndex = nodes.findLastIndex(n => n.captured)
-  const progressPercent = Math.max(0, progressIndex) / 3 * 100
+  const progressPercent = progressIndex === -1 ? 0 : ((progressIndex + 1) / 4) * 100
   return (
     <div className="flex items-center my-2 relative">
       <div className="absolute left-2 right-2 top-2 h-px bg-border-subtle z-0" />
@@ -180,16 +180,8 @@ export function AttackSurface() {
                     </div>
                   </div>
                   <div className="text-xs text-text-disabled font-mono flex-shrink-0 truncate max-w-[180px]">
-                    {cap.filePath?.split('/').pop()}
+                    {cap.filePath?.split(/[/\\]/).pop()}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => stopJob(cap.id)}
-                    className="h-6 px-2 text-[11px] bg-status-error/10 text-status-error hover:bg-status-error/20 border-status-error/30 flex-shrink-0"
-                  >
-                    <Square className="w-2.5 h-2.5 mr-1" fill="currentColor" />Stop
-                  </Button>
                 </div>
               ))}
             </div>
