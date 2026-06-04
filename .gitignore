@@ -18,6 +18,7 @@ backend/.venv/
 *.sqlite-shm
 backend/db.sqlite
 backend/db.sqlite-*
+backend/wcarck.db
 
 # Node
 node_modules/
@@ -49,3 +50,6 @@ backend/logs/
 
 # Reference tools (not part of Wcarck)
 ESTBTOOLs/
+
+# Temp files
+spec_dump.txt
