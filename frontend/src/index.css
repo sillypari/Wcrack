@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ─── Base Surface ─── */
+    --bg-root:        hsl(225, 15%, 8%);     /* #121318 — deepest background */
+    --bg-surface:     hsl(225, 14%, 11%);    /* #181a21 — card/panel background */
+    --bg-elevated:    hsl(225, 13%, 14%);    /* #1f2129 — elevated cards, modals */
+    --bg-hover:       hsl(225, 12%, 17%);    /* #272a33 — hover state on cards */
+    --bg-active:      hsl(225, 11%, 20%);    /* #2f323d — pressed/active state */
+
+    /* ─── Border ─── */
+    --border-subtle:  hsl(225, 10%, 18%);    /* barely visible card edges */
+    --border-default: hsl(225, 10%, 24%);    /* form inputs, dividers */
+    --border-strong:  hsl(225, 10%, 32%);    /* focused inputs */
+
+    /* ─── Text ─── */
+    --text-primary:   hsl(220, 20%, 93%);    /* #eceef4 — headings, primary content */
+    --text-secondary: hsl(220, 12%, 65%);    /* #9a9eb0 — descriptions, labels */
+    --text-tertiary:  hsl(220, 8%, 45%);     /* #6b6f7e — timestamps, muted info */
+    --text-disabled:  hsl(220, 5%, 30%);     /* disabled controls */
+
+    /* ─── Accent: Ubuntu Orange (primary action) ─── */
+    --accent:         hsl(18, 90%, 56%);     /* #E95420 — Ubuntu signature orange */
+    --accent-hover:   hsl(18, 90%, 48%);     /* darker on hover */
+    --accent-glow:    hsl(18, 90%, 56%, 0.15); /* glow behind active buttons */
+    --accent-text:    hsl(18, 90%, 70%);     /* orange text for links/actions */
+
+    /* ─── Semantic: Status Colors ─── */
+    --status-running:  hsl(142, 60%, 50%);   /* #3dba6a — green pulse for active jobs */
+    --status-success:  hsl(142, 55%, 42%);   /* darker green for completed */
+    --status-warning:  hsl(38, 92%, 55%);    /* #e8a830 — amber for warnings */
+    --status-error:    hsl(0, 72%, 56%);     /* #d94848 — red for errors */
+    --status-info:     hsl(210, 80%, 60%);   /* #4a90d9 — blue for info */
+    --status-idle:     hsl(220, 10%, 40%);   /* gray for idle/stopped */
+
+    /* ─── RF-Specific Colors ─── */
+    --rf-signal-strong: hsl(142, 60%, 50%);  /* -30 to -50 dBm */
+    --rf-signal-good:   hsl(80, 55%, 50%);   /* -50 to -65 dBm */
+    --rf-signal-weak:   hsl(38, 80%, 55%);   /* -65 to -75 dBm */
+    --rf-signal-poor:   hsl(0, 65%, 50%);    /* -75 to -90 dBm */
+
+    --rf-band-24:     hsl(200, 70%, 55%);    /* 2.4 GHz = blue */
+    --rf-band-5:      hsl(280, 60%, 60%);    /* 5 GHz = purple */
+
+    --rf-wpa2:        hsl(142, 50%, 45%);    /* WPA2 badge */
+    --rf-wpa3:        hsl(210, 70%, 55%);    /* WPA3 badge */
+    --rf-wep:         hsl(0, 60%, 50%);      /* WEP badge (insecure) */
+    --rf-open:        hsl(38, 80%, 55%);     /* Open badge (warning) */
+
+    /* ─── Glass Effect ─── */
+    --glass-bg:       hsl(225, 15%, 12%, 0.7);
+    --glass-border:   hsl(225, 15%, 25%, 0.4);
+    --glass-blur:     12px;
+
+    /* ─── Typography (using standard Tailwind sizes in config, keeping font families here) ─── */
+    --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono:  'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+    --text-xs:    0.6875rem;   /* 11px */
+    --text-sm:    0.8125rem;   /* 13px */
+    --text-base:  0.875rem;    /* 14px */
+    --text-md:    1rem;        /* 16px */
+    --text-lg:    1.25rem;     /* 20px */
+    --text-xl:    1.5rem;      /* 24px */
+    --text-2xl:   2rem;        /* 32px */
+    --text-3xl:   2.75rem;     /* 44px */
+
+    /* ─── Border Radius ─── */
+    --radius-sm:   6px;    /* badges, tags */
+    --radius-md:   10px;   /* buttons, inputs */
+    --radius-lg:   14px;   /* cards */
+    --radius-xl:   20px;   /* modals, large panels */
+    --radius-full: 9999px; /* pills, avatars, dots */
+
+    /* ─── Box Shadows ─── */
+    --shadow-sm:  0 1px 3px hsl(225, 20%, 4%, 0.4);
+    --shadow-md:  0 4px 12px hsl(225, 20%, 4%, 0.5);
+    --shadow-lg:  0 8px 30px hsl(225, 20%, 4%, 0.6);
+    --shadow-glow-accent:   none;
+    --shadow-glow-green:    none;
+    --shadow-glow-red:      none;
+    --shadow-glow-warning:  none;
+    --shadow-glow-info:     none;
+
+    /* ─── Animation Durations ─── */
+    --duration-instant:  100ms;
+    --duration-fast:     150ms;
+    --duration-normal:   250ms;
+    --duration-slow:     400ms;
+
+    /* ─── Animation Easing ─── */
+    --ease-default:  cubic-bezier(0.25, 0.1, 0.25, 1);        /* smooth default */
+    --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);       /* overshoot bounce */
+    --ease-out:      cubic-bezier(0, 0, 0.2, 1);              /* decelerate */
+    --ease-in:       cubic-bezier(0.4, 0, 1, 1);              /* accelerate */
+
+    /* Shadcn defaults mapped to our dark theme */
+    --background: var(--bg-root);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--bg-elevated);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent);
+    --primary-foreground: hsl(220, 20%, 93%); /* #eceef4 */
+    --secondary: var(--bg-hover);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--bg-elevated);
+    --muted-foreground: var(--text-secondary);
+    --accent-shadcn: var(--bg-hover);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--status-error);
+    --destructive-foreground: hsl(220, 20%, 93%);
+    --border: var(--border-default);
+    --input: var(--border-strong);
+    --ring: var(--accent);
+    --radius: var(--radius-md);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-bg-root text-text-primary font-sans antialiased selection:bg-accent selection:text-white;
+  }
+  
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M7 9l3 3 3-3' stroke='%239a9eb0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 0.6rem center;
+    background-size: 1.25rem 1.25rem;
+    background-repeat: no-repeat;
+    padding-right: 2.25rem !important;
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
+  }
+  select:focus {
+    border-color: var(--accent) !important;
+    outline: none;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  select option {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+  
+  /* Scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: var(--radius-full);
+    border: 2px solid var(--bg-root);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
+}

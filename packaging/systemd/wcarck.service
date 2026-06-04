@@ -1,0 +1,22 @@
+[Unit]
+Description=Wcarck Portable WiFi Audit Platform
+After=network.target
+
+[Service]
+Type=simple
+User=wcarck
+Group=wcarck
+WorkingDirectory=/opt/wcarck/backend
+Environment="PATH=/opt/wcarck/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/wcarck/backend/.venv/bin/uvicorn wcarck.main:app --host 0.0.0.0 --port 8080
+
+# Security and Performance Limits
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5s
+
+# Capabilities required for raw sockets without root
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,164 @@
+# Porject47 — Wcarck
+## Document Metadata
+## 🤖 Master Index & Cross-References (For AI Coders)
+## Table of Contents
+## 1. Executive Summary
+### Key differentiators
+### MVP definition (end of Week 4)
+### Project scale
+## 2. Project Identity
+### Names
+### Tagline
+### Non-goals (scope guardrails)
+### License rationale
+## 3. Origin Story — ESP8266 Lineage
+### Heritage features migrating to Wcarck
+## 4. Hardware Inventory
+### Host machine
+### Radio 1 — wlan0 (built-in)
+### Radio 2 — wlan1 (USB)
+### Radio 3 — wlan2 (USB)
+### Radio role assignment summary
+### Future hardware (optional, post-MVP)
+## 5. Network Environment & Test Lab
+### Current home network (confirmed via Windows ipconfig)
+### Confirmed visible SSIDs (on `Code-X` profile list, last scan)
+### Default test lab plan
+### Scope discipline
+## 6. System Architecture
+### Layered view
+### Process model
+### Control plane vs data plane
+### Radio lease manager
+#### Lease acquisition rules (engineering-review §6.1-6.3, plan-review §2.7-2.8, §2.10)
+### Job lifecycle
+### Artifact pipeline
+### Data flow example — Deauth attack
+### Mode-switch state machine (single-radio Evil Twin)
+## 7. Technology Stack
+### Backend
+### Frontend
+#### Frontend correctness (engineering-review §10)
+### System-level dependencies (apt + source)
+## 8. Project Structure
+## 9. Database Schema
+### 9.1 Connect-time PRAGMAs and buffered writes
+### 9.2 `config.toml` schema
+# ── Control plane ─────────────────────────────────────────────
+# Login / TLS are deferred to post-MVP hardening (Section 12).
+# ── Database ──────────────────────────────────────────────────
+# ── Adapters (udev names from Section 13) ─────────────────────
+# ── Radio leases ──────────────────────────────────────────────
+# Runtime injection-test pre-flight (plan-review §2.10) — sends
+# one scapy beacon frame at mode-switch and requires a non-zero
+# TX-success before the monitor.locked lease is granted.
+# ── Captive portal ────────────────────────────────────────────
+# Captive-portal detection bypass IPs (refreshed quarterly)
+# ── Deauth / attack defaults ──────────────────────────────────
+# ── Plugin trust ──────────────────────────────────────────────
+# ── Logging / audit ───────────────────────────────────────────
+## 10. API Surface
+### REST endpoints (FastAPI, OpenAPI 3.1 auto-generated)
+#### Adapters
+#### Scope
+#### Recon / scan
+#### Attacks
+#### Captures
+#### AP / Evil Twin
+#### Credentials
+#### Jobs, Events, and Session Log
+#### Modules
+#### Cracking (Phase 6 — opt-in)
+### WebSocket channels (`/ws`)
+## 11. Feature Roadmap
+### Phase 1 — Foundations (Week 1)
+### Phase 2 — Recon (Week 2)
+### Phase 3 — Attacks (Week 3)
+#### Phase 3 — `ManagedProcess` correctness (engineering-review blockers)
+### Phase 4 — Evil Twin (Week 4) — MVP COMPLETE
+### Phase 5 — Modules & Polish (Weeks 5–6)
+### Phase 6 — Stretch (Week 7+)
+## 12. MVP Engineering Model
+### MVP engineering-only features
+### MVP safety boundaries
+### Deferred to post-MVP hardening
+## 13. udev Rules — Predictable Interface Naming
+# Wcarck stable interface names by MAC address
+# Generated for machine: Code-X
+# Built-in MediaTek MT7902 → internet uplink only
+# Ralink RT-series USB → monitor + injection (2.4 GHz)
+# TP-Link Archer T2U Plus (RTL8821AU) → AP + 5 GHz monitor
+## 14. systemd Service Design
+# CAP_SYS_ADMIN is intentionally OMITTED from the production service.
+# It is only needed for mac80211_hwsim (CI) — see
+# /etc/systemd/system/wcarck-ci.service.d/override.conf for the CI override.
+## 15. Installation Flow
+### CI override for `mac80211_hwsim`
+## 16. Driver Setup Matrix
+## 17. Captive Portal Templates
+## 18. Testing Strategy
+## 19. Risk Register
+## 20. Open Questions
+## 21. Decision Log
+## 22. Glossary
+## 23. References & Further Reading
+## 24. Changelog
+### v0.1.1 — 2026-06-03 (Planning Phase — scope revision)
+### v0.1.2 — 2026-06-03 (Planning Phase — competitor analysis synthesis)
+### v0.1.3 — 2026-06-03 (Planning Phase — architecture hardening)
+### v0.1.4 — 2026-06-03 (Planning Phase — MVP trim + flaw review)
+### v0.1.5 — 2026-06-03 (Planning Phase — Engineering-only MVP trim)
+### v0.1.6 — 2026-06-03 (Planning Phase — engineering-review + plan-review integration)
+### v0.1.6 (continued) — 2026-06-03 (Planning Phase — edge-case + exception-handling integration)
+### v0.1.6 (continued 2) — 2026-06-03 (Planning Phase — aircrack-ng review integration)
+### v0.1.6 (continued 3) — 2026-06-03 (Planning Phase — UI/UX design integration)
+### v0.1.6 (continued 4) — 2026-06-03 (Planning Phase — Final Verdict integration)
+### Next checkpoint — Exit Plan Mode → v0.2.0
+## 25. V2 Future Vision (Post-MVP, Sketch Only)
+### 25.1 Candidate V2 capabilities
+### 25.2 Permanent non-goals
+### 25.3 Re-entry criteria for V2
+### 25.4 Borrowed features (V2 candidates, from competitor review)
+## 26. Module & Plugin Architecture
+### 26.1 The Module contract
+### 26.2 Built-in modules (V1)
+### 26.3 Plugin discovery and trust
+### 26.4 Event bus
+#### EventBus correctness (engineering-review §5.1, §5.2)
+### 26.5 Process lifecycle (`ManagedProcess`)
+### 26.6 Module execution rules
+### 26.7 Built-in module priority
+## 27. Reference Tool Notes & Attribution
+### bettercap
+### Airgeddon
+### wifiphisher
+### wifite2
+### Detailed file-by-file attribution
+## 28. Edge Cases & Exception Handling
+### 28.0 Foundational philosophy
+### 28.1 Hardware failure handling
+### 28.2 Subprocess lifecycle
+### 28.3 Asyncio structured concurrency
+### 28.4 SQLite resilience
+### 28.5 RF/Protocol edge cases
+### 28.6 Evil Twin race conditions
+### 28.7 State machine robustness
+### 28.8 Observability
+### 28.9 Edge case summary
+## 29. UI/UX Design Specification
+### 29.0 Design philosophy — four pillars
+### 29.1 Design system tokens (summary)
+### 29.2 Master layout — three zones
+### 29.3 Page inventory (8 pages)
+### 29.4 Micro-interactions (non-negotiable)
+### 29.5 Self-corrections (override earlier assumptions)
+### 29.6 Performance budget (enforced)
+### 29.7 Accessibility
+### 29.8 Phase-1 design-system deliverables
+## 30. Final Verdict Integration
+### 30.0 Architectural readiness
+### 30.1 The 4 critical showstoppers (all in V1)
+### 30.2 Refinements to existing decisions (Final Verdict overrides)
+### 30.3 New architectural decisions (V1)
+### 30.4 Deferred to V2 (Final Verdict §8.2 Topology, §8.6 Client Report)
+### 30.5 Implementation rollout (Final Verdict §9)

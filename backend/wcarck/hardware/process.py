@@ -1,0 +1,155 @@
+import asyncio
+import os
+import signal
+from typing import Optional, List
+from wcarck.core.event_bus import bus
+import time
+
+class ManagedProcess:
+    """
+    Wraps asyncio.create_subprocess_exec to ensure process group isolation,
+    preventing orphaned airodump-ng/scapy zombie processes, and avoiding
+    GIL pipe deadlocks.
+    """
+    PRIVILEGED_BINS = {"iw", "ip", "macchanger", "hostapd", "dnsmasq", "aircrack-ng", "aireplay-ng", "hcxdumptool", "hcxhashtool", "airodump-ng"}
+
+    def __init__(self, cmd: List[str], job_id: str, track_stdout: bool = True):
+        # Auto-prepend sudo if needed
+        if cmd and cmd[0] in self.PRIVILEGED_BINS and os.name == 'posix':
+            self.cmd = ["sudo", "-n"] + cmd
+        else:
+            self.cmd = cmd
+            
+        self.job_id = job_id
+        self.track_stdout = track_stdout
+        self._process: Optional[asyncio.subprocess.Process] = None
+        self._task_group: Optional[asyncio.TaskGroup] = None
+
+    async def start(self) -> None:
+        """Starts the process in its own session/process group."""
+        
+        # start_new_session=True creates a new process group on Linux/Unix
+        # For Windows dev-mode fallback, we use creationflags
+        kwargs = {}
+        if os.name == 'posix':
+            kwargs['start_new_session'] = True
+        elif os.name == 'nt':
+            kwargs['creationflags'] = getattr(asyncio.subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
+
+        self._process = await asyncio.create_subprocess_exec(
+            *self.cmd,
+            stdout=asyncio.subprocess.PIPE if self.track_stdout else asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+            **kwargs
+        )
+
+        bus.publish("process.started", {
+            "job_id": self.job_id,
+            "cmd": " ".join(self.cmd),
+            "pid": self._process.pid
+        })
+
+        if self.track_stdout:
+            # We must use TaskGroup or ensure drains to avoid pipe deadlock
+            # Note: TaskGroup requires Python 3.11+
+            asyncio.create_task(self._drain_stdout())
+        asyncio.create_task(self._drain_stderr())
+
+    async def _drain_stdout(self):
+        if not self._process or not self._process.stdout:
+            return
+        try:
+            async for line in self._process.stdout:
+                bus.publish("process.stdout", {
+                    "job_id": self.job_id,
+                    "line": line.decode('utf-8', errors='replace').strip()
+                })
+        except ValueError:
+            pass
+
+    async def _drain_stderr(self):
+        if not self._process or not self._process.stderr:
+            return
+        try:
+            async for line in self._process.stderr:
+                bus.publish("process.stderr", {
+                    "job_id": self.job_id,
+                    "line": line.decode('utf-8', errors='replace').strip()
+                })
+        except ValueError:
+            pass
+
+    async def stop(self, grace: float = 5.0) -> None:
+        """Kills the entire process tree, handling hcxdumptool exceptions."""
+        if not self._process:
+            return
+            
+        if self._process.returncode is None:
+            pid = self._process.pid
+            
+            # hcxdumptool IGNORES SIGINT and needs SIGTERM then SIGKILL (Edge Case 3.1)
+            is_hcx = any("hcxdumptool" in arg for arg in self.cmd)
+            
+            try:
+                import psutil
+                try:
+                    parent = psutil.Process(pid)
+                    children = parent.children(recursive=True)
+                except psutil.NoSuchProcess:
+                    children = []
+                    parent = None
+
+                # Terminate tree
+                if is_hcx:
+                    if os.name == 'posix':
+                        os.killpg(os.getpgid(pid), signal.SIGTERM)
+                    else:
+                        self._process.terminate()
+                else:
+                    for child in children:
+                        try:
+                            child.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
+                    if parent:
+                        try:
+                            parent.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
+
+                # Wait with timeout
+                if parent or children:
+                    gone, alive = psutil.wait_procs(children + ([parent] if parent else []), timeout=grace)
+                    # SIGKILL survivors
+                    for p in alive:
+                        try:
+                            p.kill()
+                        except psutil.NoSuchProcess:
+                            pass
+
+            except ImportError:
+                # Fallback to os.killpg
+                try:
+                    if os.name == 'posix':
+                        if is_hcx:
+                            os.killpg(os.getpgid(pid), signal.SIGTERM)
+                            await asyncio.sleep(2.0) # wait for flush
+                        os.killpg(os.getpgid(pid), signal.SIGKILL)
+                    else:
+                        self._process.kill()
+                except ProcessLookupError:
+                    pass
+                    
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=grace)
+            except asyncio.TimeoutError:
+                try:
+                    self._process.kill()
+                except ProcessLookupError:
+                    pass
+                await self._process.wait()
+
+        bus.publish("process.stopped", {
+            "job_id": self.job_id,
+            "returncode": self._process.returncode
+        })

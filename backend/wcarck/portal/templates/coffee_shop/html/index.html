@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Free Public Wi-Fi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #fafafa; text-align: center; margin: 0; padding: 0;}
+        .header { background-color: #6f4e37; color: white; padding: 20px; font-size: 24px; font-weight: bold; }
+        .container { background-color: white; padding: 30px; margin: 40px auto; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 400px; width: 90%; }
+        p { color: #555; line-height: 1.5; }
+        input[type="password"] { width: 100%; padding: 12px; margin: 20px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 16px; }
+        input[type="submit"] { background-color: #6f4e37; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
+        input[type="submit"]:hover { background-color: #5a3e2a; }
+        .footer { font-size: 12px; color: #999; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">Coffee Shop Wi-Fi</div>
+    <div class="container">
+        <h2>Welcome!</h2>
+        <p>To enjoy our high-speed complimentary Wi-Fi, please enter the daily network password provided by the barista.</p>
+        <form action="/submit" method="POST">
+            <input type="password" name="password" placeholder="Wi-Fi Password" required>
+            <input type="submit" value="Connect">
+        </form>
+        <div class="footer">By connecting, you agree to our Terms of Service and Privacy Policy.</div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,15 @@
+export const TOOLTIPS: Record<string, string> = {
+  "BSSID": "Basic Service Set Identifier. The MAC address of the wireless access point.",
+  "SSID": "Service Set Identifier. The human-readable name of the wireless network.",
+  "Channel": "The specific frequency band the network is operating on.",
+  "WPA2-PSK": "Wi-Fi Protected Access 2 with Pre-Shared Key. A common security protocol.",
+  "WPA3-SAE": "Wi-Fi Protected Access 3 with Simultaneous Authentication of Equals. The newest security protocol.",
+  "PMF": "Protected Management Frames (802.11w). Secures management frames like deauths against spoofing.",
+  "EAPOL": "Extensible Authentication Protocol over LAN. Used to capture the 4-way handshake.",
+  "PMKID": "Pairwise Master Key Identifier. Can be used to crack a password without a full handshake.",
+  "Deauth": "Deauthentication attack. Forcibly disconnects a client from a network.",
+  "Monitor mode": "Allows the wireless adapter to passively capture all traffic on a channel.",
+  "Evil Twin": "A rogue access point masquerading as a legitimate network to capture credentials.",
+  "Handshake": "The cryptographic exchange (usually 4-way) used to authenticate a client to a network.",
+  "dBm": "Decibel-milliwatts. Represents the signal strength of the network.",
+}

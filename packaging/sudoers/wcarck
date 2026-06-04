@@ -1,0 +1,1 @@
+wcarck ALL=(ALL) NOPASSWD: /usr/sbin/iw, /usr/sbin/ip, /usr/bin/macchanger, /usr/sbin/hostapd, /usr/sbin/dnsmasq, /usr/sbin/airmon-ng, /usr/bin/hcxdumptool, /usr/sbin/aircrack-ng, /usr/sbin/aireplay-ng, /usr/sbin/mdk4

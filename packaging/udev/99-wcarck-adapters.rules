@@ -1,0 +1,6 @@
+# Wcarck predictable network interface naming rules
+# Replace MAC addresses with your specific hardware MACs to enforce naming.
+# Example:
+# SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="00:11:22:33:44:55", NAME="wlan_uplink"
+# SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="aa:bb:cc:dd:ee:ff", NAME="wlan_mon"
+# SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="ff:ee:dd:cc:bb:aa", NAME="wlan_ap"
