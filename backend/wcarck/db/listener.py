@@ -191,7 +191,9 @@ class DBEventListener:
                             last_seen=datetime.fromtimestamp(last_seen_ts, timezone.utc).replace(tzinfo=None),
                             max_rssi=cli.get("signal_dbm") or cli.get("max_rssi") or cli.get("power") or -70,
                             packets=cli.get("packets") or 0,
-                            probed_ssids=cli.get("probed_ssids", [])
+                            probed_ssids=cli.get("probed_ssids", []),
+                            lost=cli.get("lost", 0),
+                            rate=cli.get("rate", ""),
                         )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=[Client.mac],
@@ -200,7 +202,9 @@ class DBEventListener:
                                 "last_seen": stmt.excluded.last_seen,
                                 "max_rssi": stmt.excluded.max_rssi,
                                 "packets": stmt.excluded.packets,
-                                "probed_ssids": stmt.excluded.probed_ssids
+                                "probed_ssids": stmt.excluded.probed_ssids,
+                                "lost": stmt.excluded.lost,
+                                "rate": stmt.excluded.rate,
                             }
                         )
                         await session.execute(stmt)

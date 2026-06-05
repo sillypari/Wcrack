@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from datetime import datetime
 from wcarck.db.session import get_db
 from wcarck.db.models import Network, Client
 
@@ -10,14 +11,17 @@ router = APIRouter(prefix="/api/networks", tags=["networks"])
 
 class ApRes(BaseModel):
     bssid: str
-    ssid: Optional[str]
-    channel: Optional[int]
-    encryption: Optional[str]
-    cipher: Optional[str]
-    auth: Optional[str]
+    ssid: Optional[str] = ""
+    channel: Optional[int] = 0
+    encryption: Optional[str] = ""
+    cipher: Optional[str] = ""
+    auth: Optional[str] = ""
     signal_dbm: Optional[int] = Field(default=None, validation_alias="max_rssi")
-    beacons: Optional[int]
-    data: Optional[int]
+    beacons: Optional[int] = 0
+    data: Optional[int] = 0
+    wps: Optional[bool] = False
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
     
     model_config = {"from_attributes": True}
 
@@ -25,7 +29,12 @@ class ClientRes(BaseModel):
     mac: str
     bssid: Optional[str] = Field(default=None, validation_alias="associated_bssid")
     signal_dbm: Optional[int] = Field(default=None, validation_alias="max_rssi")
-    packets: Optional[int] = None
+    packets: Optional[int] = 0
+    lost: Optional[int] = 0
+    rate: Optional[str] = ""
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    probed_ssids: Optional[list] = []
     
     model_config = {"from_attributes": True}
 

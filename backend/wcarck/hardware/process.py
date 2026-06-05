@@ -80,11 +80,16 @@ class ManagedProcess:
         if not self._process or not self._process.stdout:
             return
         try:
+            line_count = 0
             async for line in self._process.stdout:
-                bus.publish("process.stdout", {
-                    "job_id": self.job_id,
-                    "line": line.decode('utf-8', errors='replace').strip()
-                })
+                line_count += 1
+                # Only publish every 5th line to avoid flooding the EventBus.
+                # Full output is still captured by the scanner's CSV parser.
+                if line_count % 5 == 0:
+                    bus.publish("process.stdout", {
+                        "job_id": self.job_id,
+                        "line": line.decode('utf-8', errors='replace').strip()
+                    })
         except ValueError:
             pass
 

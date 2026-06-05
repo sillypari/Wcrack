@@ -640,3 +640,151 @@ No guard against `None` return from `poll()`.
 ### Fix
 
 Added `if device is None: return` guard at the top of `udev_callback`.
+
+---
+
+## Bug #23: SQLite "database is locked" — busy_timeout Not Set on Each Connection [FIXED]
+
+**Status:** Fixed
+**Severity:** HIGH (every adapter upsert fails, floods logs with errors)
+**Component:** Backend (`db/session.py:28-34`)
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+Every 2 seconds, the adapter watchdog tries to upsert adapter data to SQLite. Every attempt fails with `(sqlite3.OperationalError) database is locked`. The logs flood with hundreds of these errors per minute.
+
+### Root Cause
+
+`PRAGMA busy_timeout=5000` was only set in `init_db()` on the engine-level connection. Individual `SessionLocal()` connections did NOT inherit this pragma because `set_sqlite_pragma` listener only set `journal_mode`, `synchronous`, and `foreign_keys` — not `busy_timeout`. Without it, SQLite immediately fails when the DB is locked instead of waiting.
+
+### Fix
+
+Added `PRAGMA busy_timeout=5000` to the `set_sqlite_pragma` event listener so every connection gets it.
+
+---
+
+## Bug #24: Adapters API 500 — Pydantic Type Mismatch (bands/last_seen) [FIXED]
+
+**Status:** Fixed
+**Severity:** HIGH (adapters page completely broken)
+**Component:** Backend (`api/adapters.py:24-42`)
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+`GET /api/adapters` returns 500 Internal Server Error with Pydantic validation errors.
+
+### Root Cause
+
+```python
+bands: Optional[List[str]] = None   # DB stores [2.4, 5.0] (floats)
+last_seen: Optional[str] = None     # DB stores datetime objects
+```
+
+### Fix
+
+Changed to `bands: Optional[List[float]]` and `last_seen: Optional[datetime]`. Added `from datetime import datetime` import.
+
+---
+
+## Bug #25: EventBus Permanently Evicts WebSocket Subscriber on Queue Overflow [FIXED]
+
+**Status:** Fixed
+**Severity:** EXTREME CRITICAL (frontend stops receiving ALL events — networks, clients, logs, jobs)
+**Component:** Backend (`core/event_bus.py:42-54`)
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+Frontend shows "Stale (105s ago)" and stops updating. The WebSocket stays connected but zero events flow. Only a page refresh restores live data — until it happens again.
+
+### Root Cause
+
+When any subscriber's queue overflows, `EventBus.publish()` permanently removes that subscriber from `_subscribers`:
+
+```python
+stale_queues = []
+for queue in list(self._subscribers):
+    try:
+        queue.put_nowait(event)
+    except asyncio.QueueFull:
+        stale_queues.append(queue)  # marked for eviction
+
+for queue in stale_queues:
+    self._subscribers.discard(queue)  # PERMANENTLY removed
+```
+
+The WebSocket subscriber uses `max_queue_size=1000`. `ManagedProcess._drain_stdout()` publishes `process.stdout` for EVERY line of airodump-ng output (hundreds/sec). The 1000-slot queue fills in seconds → subscriber evicted → frontend gets zero events forever.
+
+### Fix (3 changes)
+
+1. **`event_bus.py`** — Removed eviction logic. On queue overflow, drop the event for that subscriber but keep them subscribed to receive future events.
+2. **`process.py`** — Throttled `process.stdout` to publish every 5th line instead of every line (~80% reduction in event volume).
+3. **`hub.py`** — Increased WebSocket subscriber queue from 1000 to 5000 for more headroom.
+
+---
+
+## Bug #26: CSV Polling Causes 3-Second Delay vs Airodump-ng Real-Time Output [FIXED]
+
+**Status:** Fixed
+**Severity:** HIGH
+**Component:** Backend (`modules/recon/scanner.py`)
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+Scanner relied on periodic CSV polling (`_tail_csv` + `_parse_csv_file`) every 2 seconds. Airodump-ng writes CSV with a configurable interval (default 1s), but the file is only flushed on channel hop. This means network data was 2-3 seconds behind airodump-ng's actual stdout, making the UI feel sluggish compared to running airodump-ng directly in a terminal.
+
+### Fix
+
+Replaced CSV polling with real-time stdout parsing (`_parse_stdout`). The scanner now reads airodump-ng's stdout line-by-line using a state machine that detects AP and Client sections. Events fire as soon as data appears on stdout (sub-second latency).
+
+CSV is still written to disk for PCAP handshake capture on stop — it's just no longer the data source.
+
+---
+
+## Bug #27: Missing Client Fields (Lost, Rate, Probes) in DB/API/Frontend [FIXED]
+
+**Status:** Fixed
+**Severity:** MEDIUM
+**Component:** Backend models, API, Frontend store
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+Airodump-ng outputs `Lost` (packet loss), `Rate` (data rate), and `Probes` (probed SSIDs) for each client station. These fields were never stored in the DB, returned by the API, or displayed in the frontend.
+
+### Fix
+
+1. **`models.py`** — Added `lost: Integer` and `rate: String` columns to `Client` model
+2. **`session.py`** — Added `ALTER TABLE IF NOT EXISTS` migration for existing databases
+3. **`network.py`** — Updated `ClientRes` with `lost`, `rate`, `first_seen`, `last_seen`, `probed_ssids` fields
+4. **`listener.py`** — Updated Client upsert to include `lost` and `rate`
+5. **`useWcarckStore.ts`** — Added `lost`, `rate`, `probedSsids`, `firstSeen` to Client type and processEvent
+6. **`Reconnaissance.tsx`** — Added Client table with all airodump-ng columns (MAC, BSSID, PWR, Frames, Lost, Rate, Last Seen, Probes)
+
+---
+
+## Bug #28: AP Table Missing airodump-ng Columns (WPS, Cipher, Auth, First/Last Seen) [FIXED]
+
+**Status:** Fixed
+**Severity:** MEDIUM
+**Component:** Frontend table, API response
+**Date Found:** 2026-06-05
+**Date Fixed:** 2026-06-05
+
+### Description
+
+The AP table only showed: SSID, BSSID, CH, Band, Signal, ENC, Beacons, Data, Clients. Missing: Cipher, Auth, WPS, First Seen, Last Seen — all available from airodump-ng and the DB.
+
+### Fix
+
+1. **`network.py`** — Added `wps`, `first_seen`, `last_seen` fields to `ApRes`
+2. **`useWcarckStore.ts`** — Added `wps`, `firstSeen` to Network type; processEvent preserves existing values on updates
+3. **`Reconnaissance.tsx`** — Added Cipher, Auth, WPS, Last Seen columns; added horizontal scroll (`min-w-max`) for table overflow; added WPS badge to contextual panel

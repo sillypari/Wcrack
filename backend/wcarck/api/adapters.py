@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
+from datetime import datetime
 from wcarck.db.session import get_db
 from wcarck.db.models import Adapter
 from wcarck.core.event_bus import bus
@@ -32,9 +33,9 @@ class AdapterRes(BaseModel):
     current_mode: Optional[str] = None
     role: Optional[str] = None
     capabilities: Optional[dict] = None
-    last_seen: Optional[str] = None
+    last_seen: Optional[datetime] = None
     
-    bands: Optional[List[str]] = None
+    bands: Optional[List[float]] = None
     channel: Optional[int] = None
     rssi: Optional[int] = None
     rx: Optional[int] = None

@@ -621,3 +621,78 @@ The EvilTwin wizard had Karma Mode and DNS Spoofing toggles but no MITM option. 
 | 4 | LOW | `parse_eapol_frames` Windows mock returns fake M1/M2 | Deferred — Windows dev only |
 | 5 | LOW | RF kill hardcoded to "RF ON" in Adapters.tsx (no backend rfkill polling) | Deferred — cosmetic |
 | 6 | LOW | PMKIDCrackModule `uuid` import at line 4 shadowed by local imports | Deferred — dead import |
+
+---
+
+## 13. SESSION 13 FIXES (EventBus Eviction / Stale Data / DB Locks)
+
+**Date:** 2026-06-05
+
+### Issue 1: EventBus permanently evicts WebSocket subscriber on queue overflow
+
+**Severity:** EXTREME CRITICAL (frontend stops receiving ALL events)
+
+`EventBus.publish()` removes any subscriber whose queue is full. With `process.stdout` flooding (hundreds/sec from airodump-ng), the WebSocket subscriber's 1000-slot queue fills in seconds → evicted → frontend gets zero events.
+
+### Issue 2: SQLite "database is locked" on every adapter upsert
+
+**Severity:** HIGH (adapter data never persists, logs flood with errors)
+
+`PRAGMA busy_timeout=5000` only set in `init_db()`, not on individual `SessionLocal()` connections.
+
+### Issue 3: Adapters API 500 — Pydantic type mismatches
+
+**Severity:** HIGH (adapters page broken)
+
+`bands: List[str]` but DB stores `[2.4, 5.0]` (floats). `last_seen: str` but DB stores `datetime`.
+
+| # | Severity | Issue | File(s) | Fix |
+|---|----------|-------|---------|-----|
+| 1 | EXTREME CRITICAL | EventBus evicts subscriber on queue overflow | `event_bus.py:42-54` | Removed eviction — drop event but keep subscriber |
+| 2 | HIGH | `process.stdout` floods EventBus with every line | `process.py:79-89` | Throttled to every 5th line (~80% reduction) |
+| 3 | MEDIUM | WebSocket subscriber queue too small | `hub.py:226` | Increased from 1000 to 5000 |
+| 4 | HIGH | SQLite `busy_timeout` not on individual connections | `session.py:28-34` | Added `PRAGMA busy_timeout=5000` to `set_sqlite_pragma` |
+| 5 | HIGH | `AdapterRes.bands` typed as `List[str]` not `List[float]` | `adapters.py:37` | Changed to `Optional[List[float]]` |
+| 6 | HIGH | `AdapterRes.last_seen` typed as `str` not `datetime` | `adapters.py:35` | Changed to `Optional[datetime]` |
+
+---
+
+## Session 14: Real-Time Scan Overhaul (2026-06-05)
+
+### Changes Made
+
+| # | Severity | Issue | File(s) | Fix |
+|---|----------|-------|---------|-----|
+| 7 | HIGH | CSV polling 3s behind airodump-ng stdout | `scanner.py` | Replaced `_tail_csv`/`_parse_csv_file` with real-time `_parse_stdout` state machine |
+| 8 | MEDIUM | Client `lost`/`rate` fields missing from DB/API/Frontend | `models.py`, `network.py`, `listener.py`, `useWcarckStore.ts` | Added columns, API fields, store types, processEvent handling |
+| 9 | MEDIUM | AP table missing Cipher/Auth/WPS/Last Seen columns | `network.py`, `Reconnaissance.tsx` | Added fields to ApRes, added columns to table, horizontal scroll |
+| 10 | MEDIUM | Client table missing from Reconnaissance page | `Reconnaissance.tsx` | Added dedicated client table with all airodump-ng columns |
+| 11 | LOW | DB migration for new columns not applied on existing databases | `session.py` | Added `ALTER TABLE IF NOT EXISTS` for `clients.lost` and `clients.rate` |
+
+### Scanner Rewrite Details
+
+**Before:** CSV polling every 2s → 3s latency behind airodump-ng
+**After:** Real-time stdout parsing → sub-second latency
+
+The new `_parse_stdout` method uses a state machine:
+- `idle` → `header` (on `CH` line) → `ap_header` → `ap_data` → `client_header` → `client_data`
+- AP lines parsed with regex: BSSID, PWR, Beacons, #Data, Rate, MB, ENC, CIPHER, AUTH, ESSID
+- Client lines parsed with regex: BSSID, Station, PWR, Rate, Lost, Frames, Probes
+- First-seen → `network.discovered`/`client.discovered`; subsequent → `network.updated`/`client.updated`
+
+Edge cases handled:
+- Unicode SSIDs (errors='replace' on decode)
+- Process exit detection (returncode check on EOF)
+- Bogus/multicast BSSIDs filtered
+- Lease renewal every 5s
+- One-time CSV seed at startup for pre-existing data
+
+### New Reconnaissance UI
+
+**AP Table columns (13):** SSID, BSSID, CH, Band, Signal, ENC, Cipher, Auth, WPS, Beacons, #Data, Clients, Last Seen
+
+**Client Table columns (8):** Station, BSSID, PWR, Frames, Lost, Rate, Last Seen, Probes
+
+**Table layout:** AP table takes 60% height, Client table takes 40%. Both support horizontal scroll with `min-w-max` for overflow.
+
+### Cumulative Total Fixed: 133 issues

@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Play, Square, Skull, Download, WifiOff, Shuffle, Radar, Filter, DownloadCloud, AlertTriangle, Check } from 'lucide-react'
-import { useWcarckStore, Network } from '@/store/useWcarckStore'
+import { Play, Square, Skull, Download, WifiOff, Shuffle, Radar, Filter, DownloadCloud, AlertTriangle, Check, Users } from 'lucide-react'
+import { useWcarckStore, Network, Client } from '@/store/useWcarckStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ContextualPanel } from '@/components/layout/ContextualPanel'
@@ -172,8 +172,9 @@ export function Reconnaissance() {
     {
       accessorKey: 'ssid',
       header: 'SSID',
+      size: 180,
       cell: info => (
-        <span className="font-semibold text-text-primary">
+        <span className="font-semibold text-text-primary truncate block max-w-[180px]">
           {info.getValue<string>() || <span className="text-text-disabled italic font-normal">hidden</span>}
         </span>
       ),
@@ -181,6 +182,7 @@ export function Reconnaissance() {
     {
       accessorKey: 'bssid',
       header: 'BSSID',
+      size: 140,
       cell: info => (
         <AppTooltip content={TOOLTIPS['BSSID']}>
           <span className="font-mono text-xs text-text-secondary">{info.getValue<string>()}</span>
@@ -190,6 +192,7 @@ export function Reconnaissance() {
     {
       accessorKey: 'channel',
       header: 'CH',
+      size: 50,
       cell: info => (
         <AppTooltip content={TOOLTIPS['Channel']}>
           <span className="text-sm text-text-secondary tabular-nums">{info.getValue<number>()}</span>
@@ -199,7 +202,8 @@ export function Reconnaissance() {
     {
       id: 'band',
       accessorFn: row => (row.channel > 14 ? '5' : '2.4'),
-      header: 'BAND',
+      header: 'Band',
+      size: 55,
       cell: info => {
         const band = info.getValue<string>()
         return (
@@ -214,31 +218,69 @@ export function Reconnaissance() {
     },
     {
       accessorKey: 'power',
-      header: 'SIGNAL',
+      header: 'Signal',
+      size: 90,
       cell: info => <SignalBars rssi={info.getValue<number>()} />,
     },
     {
       accessorKey: 'encryption',
       header: 'ENC',
+      size: 90,
       cell: info => <EncBadge enc={info.getValue<string>()} pmf={info.row.original.pmf} />,
     },
     {
+      accessorKey: 'cipher',
+      header: 'Cipher',
+      size: 70,
+      cell: info => <span className="text-[11px] font-mono text-text-secondary">{info.getValue<string>() || '-'}</span>,
+    },
+    {
+      accessorKey: 'auth',
+      header: 'Auth',
+      size: 60,
+      cell: info => <span className="text-[11px] font-mono text-text-secondary">{info.getValue<string>() || '-'}</span>,
+    },
+    {
+      accessorKey: 'wps',
+      header: 'WPS',
+      size: 50,
+      cell: info => info.getValue<boolean>() ? (
+        <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-status-warning/15 text-status-warning border border-status-warning/25">WPS</span>
+      ) : <span className="text-text-disabled">-</span>,
+    },
+    {
       accessorKey: 'beacons',
-      header: 'BEACONS',
-      cell: info => <span className="text-xs font-mono text-text-secondary">{info.getValue<number>()}</span>,
+      header: 'Beacons',
+      size: 70,
+      cell: info => <span className="text-xs font-mono text-text-secondary tabular-nums">{info.getValue<number>()}</span>,
     },
     {
       accessorKey: 'data',
-      header: 'DATA',
-      cell: info => <span className="text-xs font-mono text-text-secondary">{info.getValue<number>()}</span>,
+      header: '#Data',
+      size: 65,
+      cell: info => <span className="text-xs font-mono text-text-secondary tabular-nums">{info.getValue<number>()}</span>,
     },
     {
       id: 'clients',
-      header: 'CLIENTS',
+      header: 'Clients',
+      size: 60,
       cell: info => {
         const bssid = info.row.original.bssid
         const count = Array.from(clients.values()).filter(c => c.bssid === bssid).length
         return <span className={cn("text-xs font-mono", count > 0 ? "text-accent font-bold" : "text-text-disabled")}>{count}</span>
+      },
+    },
+    {
+      accessorKey: 'lastSeen',
+      header: 'Last Seen',
+      size: 80,
+      cell: info => {
+        const ts = info.getValue<number>()
+        const age = Date.now() - ts
+        if (age < 10000) return <span className="text-[10px] text-status-success font-medium">now</span>
+        if (age < 60000) return <span className="text-[10px] text-text-secondary tabular-nums">{Math.floor(age/1000)}s</span>
+        if (age < 300000) return <span className="text-[10px] text-status-warning tabular-nums">{Math.floor(age/60000)}m</span>
+        return <span className="text-[10px] text-text-disabled tabular-nums">{Math.floor(age/60000)}m</span>
       },
     },
   ], [clients])
@@ -267,6 +309,92 @@ export function Reconnaissance() {
     return Array.from(clients.values()).filter(c => c.bssid === selectedBssid)
   }, [clients, selectedBssid])
 
+  // All clients for the client table (filtered by scope if AP selected, otherwise all)
+  const clientData = React.useMemo(() => {
+    const list = Array.from(clients.values())
+    if (selectedBssid) return list.filter(c => c.bssid === selectedBssid)
+    return list
+  }, [clients, selectedBssid])
+
+  const clientColumns = React.useMemo<ColumnDef<Client>[]>(() => [
+    {
+      accessorKey: 'mac',
+      header: 'Station',
+      size: 140,
+      cell: info => <span className="font-mono text-xs text-text-primary">{info.getValue<string>()}</span>,
+    },
+    {
+      accessorKey: 'bssid',
+      header: 'BSSID',
+      size: 140,
+      cell: info => <span className="font-mono text-[11px] text-text-secondary">{info.getValue<string>() || <span className="text-text-disabled italic">not associated</span>}</span>,
+    },
+    {
+      accessorKey: 'power',
+      header: 'PWR',
+      size: 80,
+      cell: info => <SignalBars rssi={info.getValue<number>()} />,
+    },
+    {
+      accessorKey: 'packets',
+      header: 'Frames',
+      size: 65,
+      cell: info => <span className="text-xs font-mono text-text-secondary tabular-nums">{info.getValue<number>()}</span>,
+    },
+    {
+      accessorKey: 'lost',
+      header: 'Lost',
+      size: 55,
+      cell: info => {
+        const v = info.getValue<number>()
+        return <span className={cn("text-xs font-mono tabular-nums", v > 100 ? "text-status-warning" : "text-text-secondary")}>{v}</span>
+      },
+    },
+    {
+      accessorKey: 'rate',
+      header: 'Rate',
+      size: 65,
+      cell: info => <span className="text-[11px] font-mono text-text-secondary">{info.getValue<string>() || '-'}</span>,
+    },
+    {
+      accessorKey: 'lastSeen',
+      header: 'Last Seen',
+      size: 80,
+      cell: info => {
+        const ts = info.getValue<number>()
+        const age = Date.now() - ts
+        if (age < 10000) return <span className="text-[10px] text-status-success font-medium">now</span>
+        if (age < 60000) return <span className="text-[10px] text-text-secondary tabular-nums">{Math.floor(age/1000)}s</span>
+        return <span className="text-[10px] text-text-disabled tabular-nums">{Math.floor(age/60000)}m</span>
+      },
+    },
+    {
+      accessorKey: 'probedSsids',
+      header: 'Probes',
+      size: 150,
+      cell: info => {
+        const probes = info.getValue<string[]>()
+        if (!probes || probes.length === 0) return <span className="text-text-disabled">-</span>
+        return <span className="text-[10px] text-text-secondary truncate block max-w-[150px]">{probes.join(', ')}</span>
+      },
+    },
+  ], [])
+
+  // Client table
+  const clientTable = useReactTable({
+    data: clientData,
+    columns: clientColumns,
+    getCoreRowModel: getCoreRowModel(),
+  })
+  const { rows: clientRows } = clientTable.getRowModel()
+  const clientParentRef = React.useRef<HTMLDivElement>(null)
+  const clientVirtualizer = useVirtualizer({
+    count: clientRows.length,
+    getScrollElement: () => clientParentRef.current,
+    estimateSize: () => 38,
+    overscan: 10,
+  })
+
   const isScanning = activeJobs.some(j => j.type === 'recon')
   const monAdapter = monitorAdapters.length > 0
 
@@ -290,17 +418,16 @@ export function Reconnaissance() {
 
   const exportCSV = () => {
     if (!data.length) return toast.warning("No networks to export")
-    let csv = "BSSID,SSID,Channel,Encryption,Cipher,Auth,PMF,Power,Beacons,Data,LastSeen\n"
+    let csv = "BSSID,SSID,Channel,Encryption,Cipher,Auth,WPS,Power,Beacons,Data,LastSeen\n"
     data.forEach(n => {
-      csv += `${n.bssid},"${n.ssid}",${n.channel},${n.encryption},${n.cipher},${n.auth},${n.pmf},${n.power},${n.beacons},${n.data},${new Date(n.lastSeen).toISOString()}\n`
+      csv += `${n.bssid},"${n.ssid}",${n.channel},${n.encryption},${n.cipher},${n.auth},${n.wps},${n.power},${n.beacons},${n.data},${new Date(n.lastSeen).toISOString()}\n`
     })
     
-    // Also include clients at the bottom
-    csv += "\n\nClientMAC,AssociatedBSSID,Power,Packets,LastSeen\n"
+    csv += "\n\nStationMAC,AssociatedBSSID,Power,Frames,Lost,Rate,LastSeen,Probes\n"
     const clientData = Array.from(clients.values())
     clientData.forEach(c => {
       if (data.some(n => n.bssid === c.bssid)) {
-        csv += `${c.mac},${c.bssid},${c.power},${c.packets},${new Date(c.lastSeen).toISOString()}\n`
+        csv += `${c.mac},${c.bssid || ''},${c.power},${c.packets},${c.lost},${c.rate},${new Date(c.lastSeen).toISOString()},"${(c.probedSsids || []).join('; ')}"\n`
       }
     })
 
@@ -480,92 +607,145 @@ export function Reconnaissance() {
 
       {/* ── MAIN CONTENT (TABLE + PANEL) ────────────────────────────────── */}
       <div className="flex-1 min-h-0 flex gap-4">
-        {/* Table Container */}
-        <div className="flex-1 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden flex flex-col shadow-sm">
-          {/* Table Header */}
-          <div className="bg-bg-surface border-b border-border-subtle flex-shrink-0 select-none">
-            {table.getHeaderGroups().map(headerGroup => (
-              <div key={headerGroup.id} className="flex items-center h-10 px-4">
-                {headerGroup.headers.map(header => (
-                  <div
-                    key={header.id}
-                    className={cn(
-                      'text-[10px] font-bold text-text-disabled uppercase tracking-widest',
-                      header.column.id === 'ssid' ? 'flex-1' :
-                      header.column.id === 'bssid' ? 'w-36 flex-shrink-0' :
-                      header.column.id === 'channel' ? 'w-12 flex-shrink-0' :
-                      header.column.id === 'band' ? 'w-16 flex-shrink-0' :
-                      header.column.id === 'power' ? 'w-24 flex-shrink-0' :
-                      header.column.id === 'encryption' ? 'w-28 flex-shrink-0' :
-                      header.column.id === 'beacons' ? 'w-20 flex-shrink-0' :
-                      header.column.id === 'data' ? 'w-16 flex-shrink-0' :
-                      header.column.id === 'clients' ? 'w-20 flex-shrink-0 text-right' :
-                      'flex-1'
-                    )}
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
+        {/* Tables Container (AP + Client) */}
+        <div className="flex-1 min-h-0 flex flex-col gap-2">
+          {/* AP Table */}
+          <div className="flex-[3] min-h-0 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden flex flex-col shadow-sm">
+            <div className="flex-1 overflow-auto">
+              {/* Table Header */}
+              <div className="bg-bg-surface border-b border-border-subtle flex-shrink-0 select-none sticky top-0 z-10">
+                {table.getHeaderGroups().map(headerGroup => (
+                  <div key={headerGroup.id} className="flex items-center h-10 px-4 min-w-max">
+                    {headerGroup.headers.map(header => (
+                      <div
+                        key={header.id}
+                        style={{ width: header.column.getSize(), minWidth: header.column.getSize() }}
+                        className="text-[10px] font-bold text-text-disabled uppercase tracking-widest flex-shrink-0 px-2"
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
 
-          {/* Virtualized Body */}
-          <div ref={parentRef} className="flex-1 overflow-auto bg-bg-elevated relative">
-            {rows.length === 0 ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-text-disabled gap-3">
-                <Radar className="w-10 h-10 opacity-20" />
-                <span className="text-sm font-medium">No networks match filters</span>
-              </div>
-            ) : (
-              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
-                {rowVirtualizer.getVirtualItems().map(virtualRow => {
-                  const row = rows[virtualRow.index]
-                  const isSelected = selectedBssid === row.original.bssid
-                  const stale = (Date.now() - row.original.lastSeen) > 30000
+              {/* Virtualized Body */}
+              <div ref={parentRef} className="relative" style={{ height: 'calc(100% - 40px)' }}>
+                {rows.length === 0 ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-text-disabled gap-3">
+                    <Radar className="w-10 h-10 opacity-20" />
+                    <span className="text-sm font-medium">No networks match filters</span>
+                  </div>
+                ) : (
+                  <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                    {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                      const row = rows[virtualRow.index]
+                      const isSelected = selectedBssid === row.original.bssid
+                      const stale = (Date.now() - row.original.lastSeen) > 30000
 
-                  return (
-                    <div
-                      key={row.id}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                      onClick={() => setSelectedBssid(row.original.bssid)}
-                      className={cn(
-                        'flex items-center px-4 border-b border-border-subtle/50 transition-colors cursor-pointer select-none',
-                        isSelected ? 'bg-bg-active' : 'hover:bg-bg-hover',
-                        stale && !isSelected && 'opacity-50 grayscale-[50%]'
-                      )}
-                    >
-                      {row.getVisibleCells().map(cell => (
+                      return (
                         <div
-                          key={cell.id}
+                          key={row.id}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                          onClick={() => setSelectedBssid(row.original.bssid)}
                           className={cn(
-                            cell.column.id === 'ssid' ? 'flex-1 truncate pr-4' :
-                            cell.column.id === 'bssid' ? 'w-36 flex-shrink-0' :
-                            cell.column.id === 'channel' ? 'w-12 flex-shrink-0' :
-                            cell.column.id === 'band' ? 'w-16 flex-shrink-0' :
-                            cell.column.id === 'power' ? 'w-24 flex-shrink-0' :
-                            cell.column.id === 'encryption' ? 'w-28 flex-shrink-0' :
-                            cell.column.id === 'beacons' ? 'w-20 flex-shrink-0' :
-                            cell.column.id === 'data' ? 'w-16 flex-shrink-0' :
-                            cell.column.id === 'clients' ? 'w-20 flex-shrink-0 text-right' :
-                            'flex-1'
+                            'flex items-center px-4 border-b border-border-subtle/50 transition-colors cursor-pointer select-none min-w-max',
+                            isSelected ? 'bg-bg-active' : 'hover:bg-bg-hover',
+                            stale && !isSelected && 'opacity-50 grayscale-[50%]'
                           )}
                         >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {row.getVisibleCells().map(cell => (
+                            <div
+                              key={cell.id}
+                              style={{ width: cell.column.getSize(), minWidth: cell.column.getSize() }}
+                              className="flex-shrink-0 px-2 truncate"
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+          </div>
+
+          {/* Client Table */}
+          <div className="flex-[2] min-h-0 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden flex flex-col shadow-sm">
+            <div className="bg-bg-surface border-b border-border-subtle flex items-center h-9 px-4 select-none sticky top-0 z-10">
+              <Users className="w-3.5 h-3.5 text-text-disabled mr-2" />
+              <span className="text-[10px] font-bold text-text-disabled uppercase tracking-widest">
+                {selectedBssid ? 'Associated Clients' : 'All Clients'} ({clientRows.length})
+              </span>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <div className="bg-bg-surface border-b border-border-subtle flex-shrink-0 select-none">
+                {clientTable.getHeaderGroups().map(headerGroup => (
+                  <div key={headerGroup.id} className="flex items-center h-9 px-4 min-w-max">
+                    {headerGroup.headers.map(header => (
+                      <div
+                        key={header.id}
+                        style={{ width: header.column.getSize(), minWidth: header.column.getSize() }}
+                        className="text-[10px] font-bold text-text-disabled uppercase tracking-widest flex-shrink-0 px-2"
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div ref={clientParentRef} className="relative" style={{ height: 'calc(100% - 36px)' }}>
+                {clientRows.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-text-disabled">
+                    <span className="text-xs">No clients detected</span>
+                  </div>
+                ) : (
+                  <div style={{ height: `${clientVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                    {clientVirtualizer.getVirtualItems().map(virtualRow => {
+                      const row = clientRows[virtualRow.index]
+                      const stale = (Date.now() - row.original.lastSeen) > 30000
+
+                      return (
+                        <div
+                          key={row.id}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                          className={cn(
+                            'flex items-center px-4 border-b border-border-subtle/50 transition-colors select-none min-w-max',
+                            stale && 'opacity-50 grayscale-[50%]'
+                          )}
+                        >
+                          {row.getVisibleCells().map(cell => (
+                            <div
+                              key={cell.id}
+                              style={{ width: cell.column.getSize(), minWidth: cell.column.getSize() }}
+                              className="flex-shrink-0 px-2 truncate"
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -637,6 +817,12 @@ export function Reconnaissance() {
                           <div className="text-xs font-bold text-status-success">Required</div>
                         </div>
                       )}
+                      {selectedNetwork.wps && (
+                        <div>
+                          <div className="text-[9px] text-text-disabled uppercase font-semibold">WPS</div>
+                          <div className="text-xs font-bold text-status-warning">Enabled</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -668,14 +854,19 @@ export function Reconnaissance() {
                     <div className="flex flex-col gap-2">
                       {connectedClients.map(client => (
                         <div key={client.mac} className="group/cli flex items-center justify-between p-2.5 bg-bg-surface rounded-lg border border-border-subtle hover:border-border-default transition-colors">
-                          <div>
+                          <div className="flex-1 min-w-0">
                             <div className="font-mono text-xs text-text-primary font-medium">{client.mac}</div>
-                            <div className="text-[10px] text-text-disabled mt-0.5 flex items-center gap-2">
+                            <div className="text-[10px] text-text-disabled mt-0.5 flex items-center gap-3">
                               <span><SignalBars rssi={client.power} /></span>
-                              <span>Pkts: {client.packets}</span>
+                              <span>Frames: {client.packets}</span>
+                              <span>Lost: {client.lost}</span>
+                              {client.rate && <span>Rate: {client.rate}</span>}
                             </div>
-                          </div>
-                          <div>
+                            {client.probedSsids && client.probedSsids.length > 0 && (
+                              <div className="text-[9px] text-text-disabled mt-1 truncate">
+                                Probes: {client.probedSsids.join(', ')}
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}

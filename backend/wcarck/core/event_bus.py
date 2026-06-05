@@ -39,19 +39,13 @@ class EventBus:
 
             # Fan-out to all subscribers
             # asyncio.Queue.put_nowait is thread-safe in CPython.
-            stale_queues = []
             for queue in list(self._subscribers):
                 try:
                     queue.put_nowait(event)
                 except asyncio.QueueFull:
-                    # If a subscriber's queue is full, they are lagging too much.
-                    # Drop the event for them and push to DLQ
+                    # Drop event for this lagging subscriber but keep them subscribed.
+                    # Evicting would permanently disconnect them from the bus.
                     self._dlq.append(event)
-                    stale_queues.append(queue)
-
-            # Evict stale subscribers to prevent memory leaks from abandoned generators
-            for queue in stale_queues:
-                self._subscribers.discard(queue)
 
     async def subscribe(self, max_queue_size: int = 500) -> AsyncGenerator[dict[str, Any], None]:
         """

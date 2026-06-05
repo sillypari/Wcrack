@@ -36,6 +36,8 @@ export type Network = {
   power: number
   beacons: number
   data: number
+  wps: boolean
+  firstSeen: number
   lastSeen: number
 }
 
@@ -44,6 +46,10 @@ export type Client = {
   bssid: string
   power: number
   packets: number
+  lost: number
+  rate: string
+  probedSsids: string[]
+  firstSeen: number
   lastSeen: number
   randomized: boolean
 }
@@ -301,13 +307,28 @@ export const useWcarckStore = create<WcarckStore>()(
               cipher: n.cipher || '',
               auth: n.auth || '',
               beacons: n.beacons || 0,
+              data: n.data || 0,
               wps: n.wps || false,
               firstSeen: n.firstSeen || n.first_seen || Date.now(),
               lastSeen: n.lastSeen || n.last_seen || Date.now(),
             } as Network))
             
             const clients = new Map<string, Client>()
-            clientsList.forEach((c: Client) => clients.set(c.mac, c))
+            clientsList.forEach((c: any) => {
+              const client: Client = {
+                mac: c.mac,
+                bssid: c.bssid || c.associated_bssid || '',
+                power: c.power ?? c.signal_dbm ?? c.max_rssi ?? 0,
+                packets: c.packets || 0,
+                lost: c.lost || 0,
+                rate: c.rate || '',
+                probedSsids: c.probed_ssids || [],
+                firstSeen: c.first_seen ? new Date(c.first_seen).getTime() : Date.now(),
+                lastSeen: c.last_seen ? new Date(c.last_seen).getTime() : Date.now(),
+                randomized: c.randomized || false,
+              }
+              clients.set(c.mac, client)
+            })
 
             // Normalize credentials from backend format
             const normCredentials = (credentials as any[]).map((c: any) => ({
@@ -352,10 +373,9 @@ export const useWcarckStore = create<WcarckStore>()(
           
           ws.onopen = () => {
             set({ wsConnected: true, wsReconnectAttempts: 0, sessionStartedAt: Date.now() })
-            // Request history sync on connect
+            // Request history sync on connect — fetchInitialState is called
+            // after history_sync arrives to avoid being overwritten by stale events
             ws.send(JSON.stringify({ type: 'request_history', fromSeq: get().lastEventSeq }))
-            // Bootstrap initial state (adapters, networks, captures, etc.)
-            get().fetchInitialState()
           }
 
           ws.onclose = () => {
@@ -374,6 +394,9 @@ export const useWcarckStore = create<WcarckStore>()(
               const data = JSON.parse(msg.data)
               if (data.type === 'history_sync') {
                 get().syncHistory(data.events)
+                // Fetch authoritative state from API AFTER history sync
+                // so API data (real job states) isn't overwritten by stale events
+                get().fetchInitialState()
               } else if (data.type === 'event' || data.seq) {
                 get().processEvent(data.event || data)
               }
@@ -397,6 +420,7 @@ export const useWcarckStore = create<WcarckStore>()(
             case 'network.discovered':
             case 'network.updated': {
               const netMap = new Map(state.networks)
+              const existing = netMap.get(evPayload.bssid)
               const net = {
                 bssid: evPayload.bssid,
                 ssid: evPayload.ssid || '',
@@ -405,27 +429,34 @@ export const useWcarckStore = create<WcarckStore>()(
                 cipher: evPayload.cipher || '',
                 auth: evPayload.auth || '',
                 pmf: evPayload.pmf || false,
-                power: evPayload.power || evPayload.signal_dbm || 0,
-                beacons: evPayload.beacons || 0,
-                data: evPayload.data || 0,
+                power: evPayload.power ?? evPayload.signal_dbm ?? existing?.power ?? 0,
+                beacons: evPayload.beacons ?? existing?.beacons ?? 0,
+                data: evPayload.data_count ?? evPayload.data ?? existing?.data ?? 0,
+                wps: evPayload.wps ?? existing?.wps ?? false,
+                firstSeen: evPayload.first_seen ? evPayload.first_seen * 1000 : existing?.firstSeen ?? Date.now(),
                 lastSeen: evPayload.last_seen ? evPayload.last_seen * 1000 : Date.now(),
               }
-              if (net.bssid) netMap.set(net.bssid, net as any)
+              if (net.bssid) netMap.set(net.bssid, net as Network)
               newState.networks = netMap
               break
             }
             case 'client.discovered':
             case 'client.updated': {
               const cliMap = new Map(state.clients)
+              const existing = cliMap.get(evPayload.mac)
               const cli = {
                 mac: evPayload.mac,
                 bssid: evPayload.bssid || null,
-                power: evPayload.power || evPayload.signal_dbm || 0,
-                packets: evPayload.packets || 0,
+                power: evPayload.power ?? evPayload.signal_dbm ?? existing?.power ?? 0,
+                packets: evPayload.frames ?? evPayload.packets ?? existing?.packets ?? 0,
+                lost: evPayload.lost ?? existing?.lost ?? 0,
+                rate: evPayload.rate ?? existing?.rate ?? '',
+                probedSsids: evPayload.probed_ssids ?? existing?.probedSsids ?? [],
+                firstSeen: evPayload.first_seen ? evPayload.first_seen * 1000 : existing?.firstSeen ?? Date.now(),
                 lastSeen: evPayload.last_seen ? evPayload.last_seen * 1000 : Date.now(),
-                randomized: evPayload.randomized || false,
+                randomized: evPayload.randomized || existing?.randomized || false,
               }
-              if (cli.mac) cliMap.set(cli.mac, cli as any)
+              if (cli.mac) cliMap.set(cli.mac, cli as Client)
               newState.clients = cliMap
               break
             }
@@ -570,20 +601,15 @@ export const useWcarckStore = create<WcarckStore>()(
           return newState
         }),
 
-        syncHistory: (events) => set((state) => {
+        syncHistory: (events) => {
           const sorted = [...events].sort((a, b) => a.seq - b.seq)
-          const batchState = { ...state }
-          
+          const lastSeq = get().lastEventSeq
           for (const ev of sorted) {
-            if (ev.seq > state.lastEventSeq) {
-              const updates = get().processEvent(ev)
-              Object.assign(batchState, updates)
-              batchState.lastEventSeq = Math.max(batchState.lastEventSeq, ev.seq)
+            if (ev.seq > lastSeq) {
+              get().processEvent(ev)
             }
           }
-          
-          return batchState
-        }),
+        },
 
         startJob: async (moduleName, params) => {
           try {

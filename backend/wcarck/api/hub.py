@@ -223,7 +223,7 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     # Subscribe to live events and stream normalized events
-    event_stream = bus.subscribe(max_queue_size=1000)
+    event_stream = bus.subscribe(max_queue_size=5000)
     
     try:
         async for event in event_stream:

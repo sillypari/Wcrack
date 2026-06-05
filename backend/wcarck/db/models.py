@@ -101,6 +101,8 @@ class Client(Base):
     max_rssi: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     packets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     probed_ssids: Mapped[list] = mapped_column(JSON, default=list)
+    lost: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    rate: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 class JobQueue(Base):
     __tablename__ = "job_queue"

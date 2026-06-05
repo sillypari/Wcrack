@@ -58,6 +58,22 @@ async def init_db() -> None:
         from wcarck.db.models import Base
         await conn.run_sync(Base.metadata.create_all)
 
+        # Migrate: add columns to existing tables if missing
+        for stmt_text in [
+            "ALTER TABLE clients ADD COLUMN lost INTEGER DEFAULT 0",
+            "ALTER TABLE clients ADD COLUMN rate TEXT",
+        ]:
+            try:
+                await conn.execute(text(stmt_text))
+            except Exception:
+                pass  # Column already exists
+
+        # Cleanup orphaned jobs on startup — mark stale "running"/"queued" as "failed"
+        await conn.execute(text(
+            "UPDATE job_queue SET status='failed', error_msg='Backend restarted — orphaned job' "
+            "WHERE status IN ('running', 'queued', 'starting')"
+        ))
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for FastAPI endpoints."""
     async with SessionLocal() as session:
