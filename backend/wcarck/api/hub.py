@@ -196,8 +196,18 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
     # Send historical events (normalized) to solve the F5 problem
+    # Only send events the client hasn't seen yet (since_seq from request)
     try:
-        history = bus.get_history()
+        # Wait for the client's request_history message with fromSeq
+        from_seq = 0
+        try:
+            init_msg = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
+            if init_msg.get("type") == "request_history":
+                from_seq = init_msg.get("fromSeq", 0)
+        except (asyncio.TimeoutError, Exception):
+            pass  # No history request, send from 0
+        
+        history = bus.get_history(since_seq=from_seq)
         if history:
             normalized_history = [normalize_event(e) for e in history]
             await websocket.send_json({

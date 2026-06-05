@@ -107,8 +107,18 @@ class JobWorker:
                     self._running_modules[job_id_str] = module
                     try:
                         await module.start(job_id_str, job.params_json)
-                        await JobQueueOps.mark_running(session, job.id)
-                        await session.commit()
+                        # Retry mark_running up to 3 times (DB may be briefly locked)
+                        for attempt in range(3):
+                            try:
+                                await JobQueueOps.mark_running(session, job.id)
+                                await session.commit()
+                                break
+                            except Exception as e:
+                                if attempt < 2:
+                                    logger.warning(f"mark_running retry {attempt+1} for job {job_id_str}: {e}")
+                                    await asyncio.sleep(0.5)
+                                else:
+                                    logger.error(f"mark_running failed for job {job_id_str}: {e}")
                     except ResourceBusyError as e:
                         logger.warning(f"Job {job_id_str} failed: Resource Busy ({e})")
                         await JobQueueOps.mark_failed(session, job.id, str(e))

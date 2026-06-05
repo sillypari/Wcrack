@@ -82,7 +82,7 @@ python3 -m venv .venv
 chown -R wcarck:wcarck .venv
 # Install packages as the wcarck user
 sudo -u wcarck .venv/bin/pip install --upgrade pip
-sudo -u wcarck .venv/bin/pip install -e .
+sudo -u wcarck .venv/bin/pip install .
 cd "$SCRIPT_DIR"
 
 echo "[+] Configuring wireless regulatory domain to Bolivia (BO)..."

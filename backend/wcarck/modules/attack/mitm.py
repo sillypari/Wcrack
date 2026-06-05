@@ -139,7 +139,7 @@ class MITMModule(Module):
                 continue
             except Exception as e:
                 logger.debug(f"MITM parse error: {e}")
-                continue
+                await asyncio.sleep(0.5)
 
         self._running = False
 

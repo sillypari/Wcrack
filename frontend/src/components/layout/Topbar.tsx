@@ -185,7 +185,7 @@ export function Topbar() {
             {errors}
           </div>
         ) : (
-          <div className="px-2 py-1 bg-bg-elevated text-text-disabled rounded border border-border-subtle text-xs font-medium flex-shrink-0">
+          <div className="px-2 py-1 bg-status-success/10 text-status-success rounded border border-status-success/20 text-xs font-medium flex-shrink-0">
             OK
           </div>
         )}

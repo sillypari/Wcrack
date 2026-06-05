@@ -144,6 +144,27 @@ async def activate_project(project_id: int, db: AsyncSession = Depends(get_db)):
 
     return project
 
+@router.post("/{project_id}/deactivate", response_model=ProjectRes)
+async def deactivate_project(project_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Project).where(Project.id == project_id)
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project.active = False
+
+    # Deactivate all scopes for this project
+    await db.execute(update(Scope).where(Scope.project_id == project_id).values(active=False))
+
+    await db.commit()
+    await db.refresh(project)
+
+    from wcarck.core.event_bus import bus
+    bus.publish("project.deactivated", {"project_id": project.id, "name": project.name})
+
+    return project
+
 async def get_active_project(db: AsyncSession) -> Optional[Project]:
     """Helper function to fetch the currently active project."""
     stmt = select(Project).where(Project.active == True)

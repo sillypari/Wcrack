@@ -18,6 +18,9 @@ dependencies = [
     "python-multipart>=0.0.31",
 ]
 
+[tool.setuptools.packages.find]
+include = ["wcarck*"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",

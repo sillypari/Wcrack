@@ -30,6 +30,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
@@ -56,57 +57,6 @@ async def init_db() -> None:
         # Create all tables (in real app, we'd use Alembic)
         from wcarck.db.models import Base
         await conn.run_sync(Base.metadata.create_all)
-
-    # Seed default data if empty
-    from wcarck.db.models import Project, Scope, Adapter
-    async with SessionLocal() as session:
-        # Check projects
-        proj_stmt = select(Project)
-        proj_res = await session.execute(proj_stmt)
-        if not proj_res.scalars().first():
-            default_proj = Project(
-                name="Acme Wireless Audit",
-                client="Acme Corp",
-                notes="Baseline wireless audit for corporate headquarters.",
-                active=True
-            )
-            session.add(default_proj)
-            await session.flush()
-            
-            default_scope = Scope(
-                name="Default Scope (Acme Wireless Audit)",
-                notes="Auto-generated scope for project Acme Wireless Audit",
-                allowed_bssids=["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"],
-                allowed_ssids=["Acme_Corporate", "Acme_Guest"],
-                project_id=default_proj.id,
-                active=True
-            )
-            session.add(default_scope)
-            
-        # Check adapters
-        adapter_stmt = select(Adapter)
-        adapter_res = await session.execute(adapter_stmt)
-        if not adapter_res.scalars().first():
-            mon_adapter = Adapter(
-                mac="00:c0:ca:8b:21:11",
-                iface_name="wlan_mon",
-                chipset="RTP3070",
-                driver="rt2800usb",
-                current_mode="monitor",
-                role="recon.scanner"
-            )
-            ap_adapter = Adapter(
-                mac="00:c0:ca:8b:21:22",
-                iface_name="wlan_ap",
-                chipset="Atheros AR9271",
-                driver="ath9k_htc",
-                current_mode="managed",
-                role="attack.eviltwin"
-            )
-            session.add(mon_adapter)
-            session.add(ap_adapter)
-            
-        await session.commit()
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for FastAPI endpoints."""

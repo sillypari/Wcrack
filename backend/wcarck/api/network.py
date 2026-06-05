@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from wcarck.db.session import get_db
 from wcarck.db.models import Network, Client
 
@@ -15,21 +15,19 @@ class ApRes(BaseModel):
     encryption: Optional[str]
     cipher: Optional[str]
     auth: Optional[str]
-    signal_dbm: Optional[int]
+    signal_dbm: Optional[int] = Field(default=None, validation_alias="max_rssi")
     beacons: Optional[int]
     data: Optional[int]
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class ClientRes(BaseModel):
     mac: str
-    bssid: str
-    signal_dbm: Optional[int]
-    packets: Optional[int]
+    bssid: Optional[str] = Field(default=None, validation_alias="associated_bssid")
+    signal_dbm: Optional[int] = Field(default=None, validation_alias="max_rssi")
+    packets: Optional[int] = None
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 @router.get("/aps", response_model=List[ApRes])
 async def list_aps(db: AsyncSession = Depends(get_db)):

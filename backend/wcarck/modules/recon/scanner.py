@@ -87,9 +87,6 @@ class ScannerModule(Module):
             band = params.get("band", "abg")
             if band != "all":
                 cmd.extend(["--band", band])
-            hop_time = params.get("hop_time")
-            if hop_time:
-                cmd.extend(["--hop-time", str(hop_time)])
                 
         cmd.append(iface)
             
@@ -234,6 +231,8 @@ class ScannerModule(Module):
         last_check = time.time()
         seen_bssids: set = set()
         seen_clients: set = set()
+        prev_network_values: dict = {}  # bssid → {power, beacons, ssid, channel, encryption}
+        prev_client_values: dict = {}   # mac → {power, packets, bssid}
 
         # Wait for file to appear (up to 15 seconds)
         wait_start = time.monotonic()
@@ -272,7 +271,7 @@ class ScannerModule(Module):
             
             try:
                 networks_found, clients_found = await asyncio.get_event_loop().run_in_executor(
-                    None, self._parse_csv_file, csv_file, job_id, seen_bssids, seen_clients
+                    None, self._parse_csv_file, csv_file, job_id, seen_bssids, seen_clients, prev_network_values, prev_client_values
                 )
             except Exception as e:
                 logger.error(f"CSV parse error: {e}")
@@ -292,7 +291,8 @@ class ScannerModule(Module):
 
     def _parse_csv_file(
         self, csv_file: str, job_id: str,
-        seen_bssids: set, seen_clients: set
+        seen_bssids: set, seen_clients: set,
+        prev_network_values: dict, prev_client_values: dict
     ) -> tuple[int, int]:
         """Parse the full CSV and publish new/updated entries. Returns (net_count, cli_count)."""
         import io
@@ -383,13 +383,24 @@ class ScannerModule(Module):
 
                 if bssid not in seen_bssids:
                     seen_bssids.add(bssid)
+                    prev_network_values[bssid] = {"power": power, "beacons": beacons, "ssid": ssid, "channel": channel, "encryption": encryption}
                     bus.publish("network.discovered", payload)
                     bus.publish("process.stdout", {
                         "job_id": job_id,
                         "line": f"AP: {bssid} SSID={ssid!r} Ch={channel} Enc={encryption} Power={power}dBm"
                     })
                 else:
-                    bus.publish("network.updated", payload)
+                    prev = prev_network_values.get(bssid, {})
+                    changed = (
+                        prev.get("power") != power or
+                        prev.get("beacons") != beacons or
+                        prev.get("ssid") != ssid or
+                        prev.get("channel") != channel or
+                        prev.get("encryption") != encryption
+                    )
+                    if changed:
+                        prev_network_values[bssid] = {"power": power, "beacons": beacons, "ssid": ssid, "channel": channel, "encryption": encryption}
+                        bus.publish("network.updated", payload)
 
                 networks_found += 1
 
@@ -442,13 +453,22 @@ class ScannerModule(Module):
 
                 if mac not in seen_clients:
                     seen_clients.add(mac)
+                    prev_client_values[mac] = {"power": power, "packets": packets, "bssid": bssid}
                     bus.publish("client.discovered", payload)
                     bus.publish("process.stdout", {
                         "job_id": job_id,
                         "line": f"Station: {mac} → {bssid_assoc} Power={power}dBm Pkts={packets}"
                     })
                 else:
-                    bus.publish("client.updated", payload)
+                    prev = prev_client_values.get(mac, {})
+                    changed = (
+                        prev.get("power") != power or
+                        prev.get("packets") != packets or
+                        prev.get("bssid") != bssid
+                    )
+                    if changed:
+                        prev_client_values[mac] = {"power": power, "packets": packets, "bssid": bssid}
+                        bus.publish("client.updated", payload)
                     
                 # Wcarck improvement: Link clients dynamically to networks via bus
                 if bssid:
